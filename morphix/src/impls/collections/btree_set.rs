@@ -4,25 +4,38 @@ use std::borrow::Borrow;
 use std::collections::BTreeSet;
 use std::fmt::Debug;
 use std::iter::FusedIterator;
-use std::marker::PhantomData;
 use std::mem::MaybeUninit;
-use std::ops::{Deref, DerefMut, RangeBounds};
+use std::ops::RangeBounds;
 
 use serde::Serialize;
 
 use crate::general::Snapshot;
 use crate::helper::macros::{default_impl_ref_observe, delegate_methods};
-use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
-use crate::observe::{DefaultSpec, Observer, SerializeObserver};
+use crate::helper::shallow::{ShallowObserverState, ShallowSerializeObserverState, shallow_observer};
+use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Unsigned};
+use crate::observe::DefaultSpec;
 use crate::{Mutations, Observe};
 
+shallow_observer! {
+    /// Observer implementation for [`BTreeSet<T>`].
+    ///
+    /// Tracks granular mutations by maintaining a prefix boundary. Elements up to and including
+    /// the boundary are unchanged from the last flush; elements beyond the boundary form the
+    /// "tail" region that will be emitted as [`Truncate`](crate::MutationKind::Truncate) /
+    /// [`Append`](crate::MutationKind::Append) mutations.
+    ///
+    /// ## Limitations
+    ///
+    /// Most methods require `T: Clone` because the observer stores the boundary element.
+    struct BTreeSetObserver<T>(BTreeSet<T>, BTreeSetObserverState<T>);
+}
+
+default_impl_ref_observe! {
+    impl [T] RefObserve for BTreeSet<T>;
+}
+
 struct BTreeSetObserverState<T> {
-    /// The last element (inclusive) of the common prefix between the old and current set.
-    /// `None` means the prefix is empty (either the set was initially empty, or all original
-    /// elements have been moved to the tail).
     boundary: Option<T>,
-    /// Number of elements in the *original* set (at last flush/observe) that are strictly
-    /// after `boundary`. This becomes `truncate_len` on flush.
     truncate_len: usize,
 }
 
@@ -36,8 +49,6 @@ impl<T> Default for BTreeSetObserverState<T> {
 }
 
 impl<T: Clone + Ord> BTreeSetObserverState<T> {
-    /// Move all original elements in `[v, boundary]` from the prefix into the tail,
-    /// then shrink `boundary` to the predecessor of `v`.
     fn shrink_boundary(&mut self, v: &T, set: &BTreeSet<T>) {
         let boundary = match &self.boundary {
             Some(boundary) if boundary >= v => boundary,
@@ -56,87 +67,19 @@ impl<T: Ord> Invalidate<BTreeSet<T>> for BTreeSetObserverState<T> {
     }
 }
 
-/// Observer implementation for [`BTreeSet<T>`].
-///
-/// Tracks granular mutations by maintaining a prefix boundary. Elements up to and including
-/// the boundary are unchanged from the last flush; elements beyond the boundary form the
-/// "tail" region that will be emitted as [`Truncate`](crate::MutationKind::Truncate) /
-/// [`Append`](crate::MutationKind::Append) mutations.
-///
-/// ## Limitations
-///
-/// Most methods require `T: Clone` because the observer stores the boundary element.
-pub struct BTreeSetObserver<'ob, T, S: ?Sized, D = Zero> {
-    ptr: Pointer<S>,
-    state: BTreeSetObserverState<T>,
-    phantom: PhantomData<&'ob mut D>,
-}
-
-impl<'ob, T, S: ?Sized, D> Deref for BTreeSetObserver<'ob, T, S, D> {
-    type Target = Pointer<S>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.ptr
+impl<T: Clone + Ord> ShallowObserverState<BTreeSet<T>> for BTreeSetObserverState<T> {
+    fn observe(set: &BTreeSet<T>) -> Self {
+        Self {
+            boundary: set.last().cloned(),
+            truncate_len: 0,
+        }
     }
 }
 
-impl<'ob, T, S: ?Sized, D> DerefMut for BTreeSetObserver<'ob, T, S, D> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        std::ptr::from_mut(self).expose_provenance();
-        Pointer::invalidate(&mut self.ptr);
-        &mut self.ptr
-    }
-}
-
-impl<'ob, T, S: ?Sized, D> QuasiObserver for BTreeSetObserver<'ob, T, S, D>
-where
-    T: Ord,
-    D: Unsigned,
-    S: AsDeref<D, Target = BTreeSet<T>>,
-{
-    type Head = S;
-    type OuterDepth = Succ<Zero>;
-    type InnerDepth = D;
-
-    fn invalidate(this: &mut Self) {
-        Invalidate::invalidate(&mut this.state, (*this.ptr).as_deref());
-    }
-}
-
-impl<'ob, T, S: ?Sized, D> Observer for BTreeSetObserver<'ob, T, S, D>
-where
-    T: Clone + Ord,
-    D: Unsigned,
-    S: AsDerefMut<D, Target = BTreeSet<T>>,
-{
-    fn observe(head: &mut Self::Head) -> Self {
-        let this = Self {
-            state: BTreeSetObserverState {
-                boundary: head.as_deref_mut().last().cloned(),
-                truncate_len: 0,
-            },
-            ptr: Pointer::new(head),
-            phantom: PhantomData,
-        };
-        Pointer::register_state::<_, D>(&this.ptr, &this.state);
-        this
-    }
-
-    unsafe fn relocate(this: &mut Self, head: &mut Self::Head) {
-        Pointer::set(this, head);
-    }
-}
-
-impl<'ob, T, S: ?Sized, D> SerializeObserver for BTreeSetObserver<'ob, T, S, D>
-where
-    T: Serialize + Clone + Ord + 'static,
-    D: Unsigned,
-    S: AsDeref<D, Target = BTreeSet<T>>,
-{
-    unsafe fn flush(this: &mut Self) -> Mutations {
-        let set = (*this.ptr).as_deref();
-        let truncate_len = std::mem::replace(&mut this.state.truncate_len, 0);
-        let boundary = std::mem::replace(&mut this.state.boundary, set.last().cloned());
+impl<T: Serialize + Clone + Ord + 'static> ShallowSerializeObserverState<BTreeSet<T>> for BTreeSetObserverState<T> {
+    fn flush(&mut self, set: &mut BTreeSet<T>) -> Mutations {
+        let truncate_len = std::mem::replace(&mut self.truncate_len, 0);
+        let boundary = std::mem::replace(&mut self.boundary, set.last().cloned());
 
         let prefix_len = match &boundary {
             Some(b) => set.range(..=b).count(),
@@ -155,8 +98,6 @@ where
 
         #[cfg(feature = "append")]
         {
-            // BTreeSet has no contiguous slice representation, so we collect the appended
-            // elements into an owned Vec and box it as the Append value.
             let appended: Vec<T> = set.iter().skip(prefix_len).cloned().collect();
             if !appended.is_empty() {
                 mutations.extend(crate::MutationKind::Append(
@@ -386,95 +327,6 @@ where
     }
 }
 
-impl<'ob, T, S: ?Sized, D> Debug for BTreeSetObserver<'ob, T, S, D>
-where
-    T: Clone + Ord,
-    D: Unsigned,
-    S: AsDeref<D, Target = BTreeSet<T>>,
-    BTreeSet<T>: Debug,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("BTreeSetObserver").field(&self.untracked_ref()).finish()
-    }
-}
-
-impl<'ob, T, S: ?Sized, D> PartialEq<BTreeSet<T>> for BTreeSetObserver<'ob, T, S, D>
-where
-    T: Clone + Ord,
-    D: Unsigned,
-    S: AsDeref<D, Target = BTreeSet<T>>,
-    BTreeSet<T>: PartialEq,
-{
-    fn eq(&self, other: &BTreeSet<T>) -> bool {
-        self.untracked_ref().eq(other)
-    }
-}
-
-impl<'ob, T1, T2, S1: ?Sized, S2: ?Sized, D1, D2> PartialEq<BTreeSetObserver<'ob, T2, S2, D2>>
-    for BTreeSetObserver<'ob, T1, S1, D1>
-where
-    T1: Clone + Ord,
-    T2: Clone + Ord,
-    D1: Unsigned,
-    D2: Unsigned,
-    S1: AsDeref<D1, Target = BTreeSet<T1>>,
-    S2: AsDeref<D2, Target = BTreeSet<T2>>,
-    BTreeSet<T1>: PartialEq<BTreeSet<T2>>,
-{
-    fn eq(&self, other: &BTreeSetObserver<'ob, T2, S2, D2>) -> bool {
-        self.untracked_ref().eq(other.untracked_ref())
-    }
-}
-
-impl<'ob, T, S, D> Eq for BTreeSetObserver<'ob, T, S, D>
-where
-    T: Clone + Ord,
-    D: Unsigned,
-    S: AsDeref<D, Target = BTreeSet<T>>,
-    BTreeSet<T>: Eq,
-{
-}
-
-impl<'ob, T, S: ?Sized, D> PartialOrd<BTreeSet<T>> for BTreeSetObserver<'ob, T, S, D>
-where
-    T: Clone + Ord,
-    D: Unsigned,
-    S: AsDeref<D, Target = BTreeSet<T>>,
-    BTreeSet<T>: PartialOrd,
-{
-    fn partial_cmp(&self, other: &BTreeSet<T>) -> Option<std::cmp::Ordering> {
-        self.untracked_ref().partial_cmp(other)
-    }
-}
-
-impl<'ob, T1, T2, S1: ?Sized, S2: ?Sized, D1, D2> PartialOrd<BTreeSetObserver<'ob, T2, S2, D2>>
-    for BTreeSetObserver<'ob, T1, S1, D1>
-where
-    T1: Clone + Ord,
-    T2: Clone + Ord,
-    D1: Unsigned,
-    D2: Unsigned,
-    S1: AsDeref<D1, Target = BTreeSet<T1>>,
-    S2: AsDeref<D2, Target = BTreeSet<T2>>,
-    BTreeSet<T1>: PartialOrd<BTreeSet<T2>>,
-{
-    fn partial_cmp(&self, other: &BTreeSetObserver<'ob, T2, S2, D2>) -> Option<std::cmp::Ordering> {
-        self.untracked_ref().partial_cmp(other.untracked_ref())
-    }
-}
-
-impl<'ob, T, S, D> Ord for BTreeSetObserver<'ob, T, S, D>
-where
-    T: Clone + Ord,
-    D: Unsigned,
-    S: AsDeref<D, Target = BTreeSet<T>>,
-    BTreeSet<T>: Ord,
-{
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.untracked_ref().cmp(other.untracked_ref())
-    }
-}
-
 impl<T: Clone + Ord> Observe for BTreeSet<T> {
     type Observer<'ob, S, D>
         = BTreeSetObserver<'ob, T, S, D>
@@ -484,10 +336,6 @@ impl<T: Clone + Ord> Observe for BTreeSet<T> {
         S: AsDerefMut<D, Target = Self> + ?Sized + 'ob;
 
     type Spec = DefaultSpec;
-}
-
-default_impl_ref_observe! {
-    impl [T] RefObserve for BTreeSet<T>;
 }
 
 impl<T> Snapshot for BTreeSet<T>

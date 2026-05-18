@@ -4,22 +4,21 @@ use std::collections::binary_heap::{self, Drain};
 use std::collections::{BinaryHeap, TryReserveError};
 use std::ops::{Deref, DerefMut};
 
+use crate::Observe;
 use crate::helper::macros::{default_impl_ref_observe, delegate_methods};
 use crate::helper::shallow::shallow_observer;
 use crate::helper::{AsDerefMut, QuasiObserver, Unsigned};
+use crate::observe::DefaultSpec;
 
 shallow_observer! {
-    struct BinaryHeapObserver<T>(BinaryHeap<T>);
-}
-
-default_impl_ref_observe! {
-    impl [T] RefObserve for BinaryHeap<T>;
+    /// Observer implementation for [`BinaryHeap<T>`].
+    struct BinaryHeapObserver(for<T> BinaryHeap<T>);
 }
 
 /// Handle produced by [`BinaryHeapObserver::peek_mut`].
 pub struct PeekMut<'a, T: Ord> {
     inner: binary_heap::PeekMut<'a, T>,
-    mutated: *mut bool,
+    state: *mut bool,
 }
 
 impl<'a, T: Ord> Deref for PeekMut<'a, T> {
@@ -32,7 +31,7 @@ impl<'a, T: Ord> Deref for PeekMut<'a, T> {
 
 impl<'a, T: Ord> DerefMut for PeekMut<'a, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { *self.mutated = true }
+        unsafe { *self.state = true }
         &mut self.inner
     }
 }
@@ -40,21 +39,21 @@ impl<'a, T: Ord> DerefMut for PeekMut<'a, T> {
 impl<'a, T: Ord> PeekMut<'a, T> {
     /// See [`binary_heap::PeekMut::pop`].
     pub fn pop(this: PeekMut<'a, T>) -> T {
-        unsafe { *this.mutated = true }
+        unsafe { *this.state = true }
         binary_heap::PeekMut::pop(this.inner)
     }
 }
 
 struct LenGuard<'a, T> {
     old_len: usize,
-    mutated: &'a mut bool,
+    state: &'a mut bool,
     inner: &'a mut BinaryHeap<T>,
 }
 
 impl<T> Drop for LenGuard<'_, T> {
     fn drop(&mut self) {
         if self.old_len != self.inner.len() {
-            *self.mutated = true;
+            *self.state = true;
         }
     }
 }
@@ -90,7 +89,7 @@ where
         let inner = (*self.ptr).as_deref_mut();
         LenGuard {
             old_len: inner.len(),
-            mutated: &mut self.mutated,
+            state: &mut self.state,
             inner,
         }
     }
@@ -121,7 +120,7 @@ where
         let inner = (*self.ptr).as_deref_mut().peek_mut()?;
         Some(PeekMut {
             inner,
-            mutated: &raw mut self.mutated,
+            state: &raw mut self.state,
         })
     }
 
@@ -145,6 +144,21 @@ where
     fn extend<I: IntoIterator<Item = U>>(&mut self, iter: I) {
         self.guarded_mut().extend(iter);
     }
+}
+
+impl<T> Observe for BinaryHeap<T> {
+    type Observer<'ob, S, D>
+        = BinaryHeapObserver<'ob, S, D>
+    where
+        Self: 'ob,
+        D: Unsigned,
+        S: AsDerefMut<D, Target = Self> + ?Sized + 'ob;
+
+    type Spec = DefaultSpec;
+}
+
+default_impl_ref_observe! {
+    impl [T] RefObserve for BinaryHeap<T>;
 }
 
 #[cfg(test)]

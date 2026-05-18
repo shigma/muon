@@ -3,7 +3,6 @@
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::iter::FusedIterator;
-use std::marker::PhantomData;
 use std::ops::{Bound, Deref, DerefMut, RangeBounds};
 
 use cfg_version::cfg_version;
@@ -12,17 +11,20 @@ use serde::Serialize;
 
 use crate::general::Snapshot;
 use crate::helper::macros::{default_impl_ref_observe, delegate_methods};
-use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
-use crate::observe::{DefaultSpec, Observer, SerializeObserver};
+use crate::helper::shallow::{ShallowObserverState, ShallowSerializeObserverState, shallow_observer};
+use crate::helper::{AsDerefMut, Invalidate, QuasiObserver, Unsigned};
+use crate::observe::DefaultSpec;
 use crate::{Mutations, Observe};
 
+shallow_observer! {
+    /// Observer implementation for [`IndexSet<T>`].
+    struct IndexSetObserver<T>(IndexSet<T>, IndexSetObserverState<T>);
+}
+
 struct IndexSetObserverState<T> {
-    /// Number of elements truncated from the end of the original set since the last flush.
     truncate_len: usize,
-    /// Starting index of appended elements. Elements before this index are unchanged
-    /// from the last flush; elements from this index onward are "new".
     append_index: usize,
-    phantom: PhantomData<T>,
+    phantom: std::marker::PhantomData<T>,
 }
 
 impl<T> Default for IndexSetObserverState<T> {
@@ -30,22 +32,12 @@ impl<T> Default for IndexSetObserverState<T> {
         Self {
             truncate_len: 0,
             append_index: 0,
-            phantom: PhantomData,
+            phantom: std::marker::PhantomData,
         }
     }
 }
 
 impl<T> IndexSetObserverState<T> {
-    fn observe(set: &IndexSet<T>) -> Self {
-        Self {
-            truncate_len: 0,
-            append_index: set.len(),
-            phantom: PhantomData,
-        }
-    }
-
-    /// Mark that all elements from `index` onward have changed.
-    /// If `index` is already at or beyond `append_index`, this is a no-op.
     fn mark_truncate(&mut self, index: usize) {
         if self.append_index <= index {
             return;
@@ -61,78 +53,20 @@ impl<T> Invalidate<IndexSet<T>> for IndexSetObserverState<T> {
     }
 }
 
-/// Observer implementation for [`IndexSet<T>`](IndexSet).
-///
-/// Tracks granular mutations using an index-based model: elements before `append_index`
-/// are an unchanged prefix, and `truncate_len` records how many original tail elements
-/// were removed. This produces [`Truncate`](crate::MutationKind::Truncate) /
-/// [`Append`](crate::MutationKind::Append) mutations on flush.
-pub struct IndexSetObserver<'ob, T, S: ?Sized, D = Zero> {
-    ptr: Pointer<S>,
-    state: IndexSetObserverState<T>,
-    phantom: PhantomData<&'ob mut D>,
-}
-
-impl<'ob, T, S: ?Sized, D> Deref for IndexSetObserver<'ob, T, S, D> {
-    type Target = Pointer<S>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.ptr
+impl<T> ShallowObserverState<IndexSet<T>> for IndexSetObserverState<T> {
+    fn observe(set: &IndexSet<T>) -> Self {
+        Self {
+            truncate_len: 0,
+            append_index: set.len(),
+            phantom: std::marker::PhantomData,
+        }
     }
 }
 
-impl<'ob, T, S: ?Sized, D> DerefMut for IndexSetObserver<'ob, T, S, D> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        std::ptr::from_mut(self).expose_provenance();
-        Pointer::invalidate(&mut self.ptr);
-        &mut self.ptr
-    }
-}
-
-impl<'ob, T, S: ?Sized, D> QuasiObserver for IndexSetObserver<'ob, T, S, D>
-where
-    D: Unsigned,
-    S: AsDeref<D, Target = IndexSet<T>>,
-{
-    type Head = S;
-    type OuterDepth = Succ<Zero>;
-    type InnerDepth = D;
-
-    fn invalidate(this: &mut Self) {
-        Invalidate::invalidate(&mut this.state, (*this.ptr).as_deref());
-    }
-}
-
-impl<'ob, T, S: ?Sized, D> Observer for IndexSetObserver<'ob, T, S, D>
-where
-    D: Unsigned,
-    S: AsDerefMut<D, Target = IndexSet<T>>,
-{
-    fn observe(head: &mut Self::Head) -> Self {
-        let this = Self {
-            state: IndexSetObserverState::observe(head.as_deref_mut()),
-            ptr: Pointer::new(head),
-            phantom: PhantomData,
-        };
-        Pointer::register_state::<_, D>(&this.ptr, &this.state);
-        this
-    }
-
-    unsafe fn relocate(this: &mut Self, head: &mut Self::Head) {
-        Pointer::set(this, head);
-    }
-}
-
-impl<'ob, T, S: ?Sized, D> SerializeObserver for IndexSetObserver<'ob, T, S, D>
-where
-    T: Serialize + Clone + 'static,
-    D: Unsigned,
-    S: AsDeref<D, Target = IndexSet<T>>,
-{
-    unsafe fn flush(this: &mut Self) -> Mutations {
-        let set = (*this.ptr).as_deref();
-        let append_index = std::mem::replace(&mut this.state.append_index, set.len());
-        let truncate_len = std::mem::replace(&mut this.state.truncate_len, 0);
+impl<T: Serialize + Clone + 'static> ShallowSerializeObserverState<IndexSet<T>> for IndexSetObserverState<T> {
+    fn flush(&mut self, set: &mut IndexSet<T>) -> Mutations {
+        let append_index = std::mem::replace(&mut self.append_index, set.len());
+        let truncate_len = std::mem::replace(&mut self.truncate_len, 0);
 
         if append_index == 0 && truncate_len > 0 {
             return Mutations::replace(set);
@@ -602,55 +536,6 @@ where
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ExtractIf").finish_non_exhaustive()
     }
-}
-
-impl<'ob, T, S: ?Sized, D> Debug for IndexSetObserver<'ob, T, S, D>
-where
-    T: Eq + Hash,
-    D: Unsigned,
-    S: AsDeref<D, Target = IndexSet<T>>,
-    IndexSet<T>: Debug,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("IndexSetObserver").field(&self.untracked_ref()).finish()
-    }
-}
-
-impl<'ob, T, S: ?Sized, D> PartialEq<IndexSet<T>> for IndexSetObserver<'ob, T, S, D>
-where
-    T: Eq + Hash,
-    D: Unsigned,
-    S: AsDeref<D, Target = IndexSet<T>>,
-    IndexSet<T>: PartialEq,
-{
-    fn eq(&self, other: &IndexSet<T>) -> bool {
-        self.untracked_ref().eq(other)
-    }
-}
-
-impl<'ob, T1, T2, S1: ?Sized, S2: ?Sized, D1, D2> PartialEq<IndexSetObserver<'ob, T2, S2, D2>>
-    for IndexSetObserver<'ob, T1, S1, D1>
-where
-    T1: Eq + Hash,
-    T2: Eq + Hash,
-    D1: Unsigned,
-    D2: Unsigned,
-    S1: AsDeref<D1, Target = IndexSet<T1>>,
-    S2: AsDeref<D2, Target = IndexSet<T2>>,
-    IndexSet<T1>: PartialEq<IndexSet<T2>>,
-{
-    fn eq(&self, other: &IndexSetObserver<'ob, T2, S2, D2>) -> bool {
-        self.untracked_ref().eq(other.untracked_ref())
-    }
-}
-
-impl<'ob, T, S, D> Eq for IndexSetObserver<'ob, T, S, D>
-where
-    T: Eq + Hash,
-    D: Unsigned,
-    S: AsDeref<D, Target = IndexSet<T>>,
-    IndexSet<T>: Eq,
-{
 }
 
 impl<T: Clone + Eq + Hash> Observe for IndexSet<T> {

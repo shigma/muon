@@ -6,28 +6,27 @@ use std::collections::{HashSet, TryReserveError};
 use std::hash::Hash;
 use std::ops::{Deref, DerefMut};
 
+use crate::Observe;
 use crate::helper::macros::{default_impl_ref_observe, delegate_methods};
 use crate::helper::shallow::shallow_observer;
 use crate::helper::{AsDerefMut, QuasiObserver, Unsigned};
+use crate::observe::DefaultSpec;
 
 shallow_observer! {
-    struct HashSetObserver<T>(HashSet<T>);
-}
-
-default_impl_ref_observe! {
-    impl [T] RefObserve for HashSet<T>;
+    /// Observer implementation for [`HashSet<T>`].
+    struct HashSetObserver(for<T> HashSet<T>);
 }
 
 struct LenGuard<'a, T> {
     old_len: usize,
-    mutated: &'a mut bool,
+    state: &'a mut bool,
     inner: &'a mut HashSet<T>,
 }
 
 impl<T> Drop for LenGuard<'_, T> {
     fn drop(&mut self) {
         if self.old_len != self.inner.len() {
-            *self.mutated = true;
+            *self.state = true;
         }
     }
 }
@@ -63,7 +62,7 @@ where
         let inner = (*self.ptr).as_deref_mut();
         LenGuard {
             old_len: inner.len(),
-            mutated: &mut self.mutated,
+            state: &mut self.state,
             inner,
         }
     }
@@ -84,7 +83,7 @@ where
     {
         ExtractIf {
             inner: (*self.ptr).as_deref_mut().extract_if(pred),
-            mutated: &mut self.mutated,
+            state: &mut self.state,
         }
     }
 }
@@ -127,7 +126,7 @@ where
 /// Iterator produced by [`HashSetObserver::extract_if`].
 pub struct ExtractIf<'a, T, F> {
     inner: std::collections::hash_set::ExtractIf<'a, T, F>,
-    mutated: &'a mut bool,
+    state: &'a mut bool,
 }
 
 impl<T, F: FnMut(&T) -> bool> Iterator for ExtractIf<'_, T, F> {
@@ -136,7 +135,7 @@ impl<T, F: FnMut(&T) -> bool> Iterator for ExtractIf<'_, T, F> {
     fn next(&mut self) -> Option<T> {
         let result = self.inner.next();
         if result.is_some() {
-            *self.mutated = true;
+            *self.state = true;
         }
         result
     }
@@ -144,6 +143,21 @@ impl<T, F: FnMut(&T) -> bool> Iterator for ExtractIf<'_, T, F> {
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.inner.size_hint()
     }
+}
+
+impl<T> Observe for HashSet<T> {
+    type Observer<'ob, S, D>
+        = HashSetObserver<'ob, S, D>
+    where
+        Self: 'ob,
+        D: Unsigned,
+        S: AsDerefMut<D, Target = Self> + ?Sized + 'ob;
+
+    type Spec = DefaultSpec;
+}
+
+default_impl_ref_observe! {
+    impl [T] RefObserve for HashSet<T>;
 }
 
 #[cfg(test)]
