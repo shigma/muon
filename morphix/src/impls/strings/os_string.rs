@@ -11,7 +11,7 @@ use std::os::windows::ffi::OsStrExt;
 
 use super::os_str::{OsStrObserver, os_str_len};
 use crate::helper::macros::{default_impl_ref_observe, delegate_methods};
-use crate::helper::shallow::{ShallowObserverState, ShallowSerializeObserverState};
+use crate::helper::shallow::{ObserverState, SerializeObserverState};
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, QuasiObserver, Succ, Unsigned, Zero};
 use crate::observe::{DefaultSpec, Observer, SerializeObserver};
 use crate::{MutationKind, Mutations, Observe};
@@ -44,7 +44,7 @@ impl Invalidate<()> for OsStringObserverState {
     }
 }
 
-impl ShallowObserverState<OsStr> for OsStringObserverState {
+impl ObserverState<OsStr> for OsStringObserverState {
     fn observe(value: &OsStr) -> Self {
         Self {
             append_index: os_str_len(value),
@@ -53,7 +53,7 @@ impl ShallowObserverState<OsStr> for OsStringObserverState {
     }
 }
 
-impl ShallowSerializeObserverState<OsStr> for OsStringObserverState {
+impl SerializeObserverState<OsStr> for OsStringObserverState {
     fn flush(&mut self, value: &OsStr) -> Mutations {
         let new_len = os_str_len(value);
         let append_index = std::mem::replace(&mut self.append_index, new_len);

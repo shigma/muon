@@ -6,11 +6,10 @@ use std::path::Path;
 use std::ptr::NonNull;
 
 use crate::Mutations;
-use crate::general::{DebugHandler, GeneralHandler, GeneralObserver, SerializeHandler};
-use crate::helper::shallow::{ShallowDelegate, shallow_observer};
+use crate::helper::shallow::{ShallowDelegate, ObserverState, SerializeObserverState, shallow_observer};
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, Unsigned, Zero};
-use crate::impls::strings::os_str::OsStrObserver;
 use crate::impls::strings::TruncateLen;
+use crate::impls::strings::os_str::OsStrObserver;
 use crate::observe::{DefaultSpec, Observe, RefObserve};
 
 shallow_observer! {
@@ -38,11 +37,11 @@ where
     }
 }
 
-pub struct PathHandler {
+pub struct PathRefObserverState {
     raw_parts: Option<Option<(NonNull<()>, usize)>>,
 }
 
-impl Invalidate<Path> for PathHandler {
+impl Invalidate<Path> for PathRefObserverState {
     fn invalidate(&mut self, value: &Path) {
         self.raw_parts.get_or_insert_with(|| {
             value
@@ -52,16 +51,14 @@ impl Invalidate<Path> for PathHandler {
     }
 }
 
-impl GeneralHandler for PathHandler {
-    type Target = Path;
-
+impl ObserverState<Path> for PathRefObserverState {
     fn observe(_: &Path) -> Self {
         Self { raw_parts: None }
     }
 }
 
-impl SerializeHandler for PathHandler {
-    unsafe fn flush(&mut self, value: &Path) -> Mutations {
+impl SerializeObserverState<Path> for PathRefObserverState {
+    fn flush(&mut self, value: &Path) -> Mutations {
         let (old_addr, old_len) = match self.raw_parts.take() {
             None => return Mutations::new(),
             Some(None) => return Mutations::replace(value),
@@ -91,10 +88,6 @@ impl SerializeHandler for PathHandler {
     }
 }
 
-impl DebugHandler for PathHandler {
-    const NAME: &'static str = "PathHandler";
-}
-
 impl Observe for Path {
     type Observer<'ob, S, D>
         = PathObserver<'ob, bool, S, D>
@@ -108,7 +101,7 @@ impl Observe for Path {
 
 impl RefObserve for Path {
     type Observer<'ob, S, D>
-        = GeneralObserver<'ob, PathHandler, S, D>
+        = PathObserver<'ob, PathRefObserverState, S, D>
     where
         Self: 'ob,
         D: Unsigned,

@@ -11,7 +11,7 @@ use serde::Serialize;
 
 use crate::general::Snapshot;
 use crate::helper::macros::{default_impl_ref_observe, delegate_methods};
-use crate::helper::shallow::{ShallowObserverState, ShallowSerializeObserverState, shallow_observer};
+use crate::helper::shallow::{ObserverState, SerializeObserverState, shallow_observer};
 use crate::helper::{AsDerefMut, Invalidate, QuasiObserver, Unsigned};
 use crate::observe::DefaultSpec;
 use crate::{Mutations, Observe};
@@ -53,7 +53,7 @@ impl<T> Invalidate<IndexSet<T>> for IndexSetObserverState<T> {
     }
 }
 
-impl<T> ShallowObserverState<IndexSet<T>> for IndexSetObserverState<T> {
+impl<T> ObserverState<IndexSet<T>> for IndexSetObserverState<T> {
     fn observe(set: &IndexSet<T>) -> Self {
         Self {
             truncate_len: 0,
@@ -63,7 +63,7 @@ impl<T> ShallowObserverState<IndexSet<T>> for IndexSetObserverState<T> {
     }
 }
 
-impl<T: Serialize + Clone + 'static> ShallowSerializeObserverState<IndexSet<T>> for IndexSetObserverState<T> {
+impl<T: Serialize + Clone + 'static> SerializeObserverState<IndexSet<T>> for IndexSetObserverState<T> {
     fn flush(&mut self, set: &IndexSet<T>) -> Mutations {
         let append_index = std::mem::replace(&mut self.append_index, set.len());
         let truncate_len = std::mem::replace(&mut self.truncate_len, 0);

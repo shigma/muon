@@ -11,7 +11,7 @@ use serde::Serialize;
 
 use crate::general::Snapshot;
 use crate::helper::macros::{default_impl_ref_observe, delegate_methods};
-use crate::helper::shallow::{ShallowObserverState, ShallowSerializeObserverState, shallow_observer};
+use crate::helper::shallow::{ObserverState, SerializeObserverState, shallow_observer};
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Unsigned};
 use crate::observe::DefaultSpec;
 use crate::{Mutations, Observe};
@@ -67,7 +67,7 @@ impl<T: Ord> Invalidate<BTreeSet<T>> for BTreeSetObserverState<T> {
     }
 }
 
-impl<T: Clone + Ord> ShallowObserverState<BTreeSet<T>> for BTreeSetObserverState<T> {
+impl<T: Clone + Ord> ObserverState<BTreeSet<T>> for BTreeSetObserverState<T> {
     fn observe(set: &BTreeSet<T>) -> Self {
         Self {
             boundary: set.last().cloned(),
@@ -76,7 +76,7 @@ impl<T: Clone + Ord> ShallowObserverState<BTreeSet<T>> for BTreeSetObserverState
     }
 }
 
-impl<T: Serialize + Clone + Ord + 'static> ShallowSerializeObserverState<BTreeSet<T>> for BTreeSetObserverState<T> {
+impl<T: Serialize + Clone + Ord + 'static> SerializeObserverState<BTreeSet<T>> for BTreeSetObserverState<T> {
     fn flush(&mut self, set: &BTreeSet<T>) -> Mutations {
         let truncate_len = std::mem::replace(&mut self.truncate_len, 0);
         let boundary = std::mem::replace(&mut self.boundary, set.last().cloned());

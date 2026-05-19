@@ -5,46 +5,11 @@ use std::net::IpAddr;
 
 use url::{ParseError, Url};
 
-use crate::helper::shallow::{ShallowObserverState, ShallowSerializeObserverState, shallow_observer};
+use crate::helper::shallow::shallow_observer;
 use crate::helper::{AsDeref, AsDerefMut, QuasiObserver, Unsigned};
 use crate::impls::strings::string::StringObserverState;
 use crate::observe::DefaultSpec;
-use crate::{MutationKind, Mutations, Observe};
-
-impl ShallowObserverState<Url> for StringObserverState {
-    fn observe(value: &Url) -> Self {
-        Self {
-            append_index: value.as_str().len(),
-            truncate_len: 0,
-        }
-    }
-}
-
-impl ShallowSerializeObserverState<Url> for StringObserverState {
-    fn flush(&mut self, value: &Url) -> Mutations {
-        let str = value.as_str();
-        let len = str.len();
-        let append_index = std::mem::replace(&mut self.append_index, len);
-        let truncate_len = std::mem::replace(&mut self.truncate_len, 0);
-        if append_index == 0 && truncate_len > 0 {
-            return Mutations::replace(str);
-        }
-        let mut mutations = Mutations::new();
-        if truncate_len > 0 {
-            #[cfg(feature = "truncate")]
-            mutations.extend(MutationKind::Truncate(truncate_len));
-            #[cfg(not(feature = "truncate"))]
-            return Mutations::replace(str);
-        }
-        if len > append_index {
-            #[cfg(feature = "append")]
-            mutations.extend(Mutations::append(&str[append_index..]));
-            #[cfg(not(feature = "append"))]
-            return Mutations::replace(str);
-        }
-        mutations
-    }
-}
+use crate::Observe;
 
 shallow_observer! {
     /// Observer implementation for [`Url`].

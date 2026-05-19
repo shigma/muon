@@ -8,7 +8,7 @@ use std::slice::SliceIndex;
 use std::string::Drain;
 
 use crate::helper::macros::{default_impl_ref_observe, delegate_methods};
-use crate::helper::shallow::{ShallowMut, ShallowObserverState, ShallowSerializeObserverState};
+use crate::helper::shallow::{ShallowMut, ObserverState, SerializeObserverState};
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, QuasiObserver, Succ, Unsigned, Zero};
 use crate::impls::strings::str::StrObserver;
 use crate::impls::strings::TruncateLen;
@@ -39,17 +39,18 @@ impl<T: ?Sized> Invalidate<T> for StringObserverState {
     }
 }
 
-impl ShallowObserverState<str> for StringObserverState {
-    fn observe(value: &str) -> Self {
+impl<T: AsRef<str> + ?Sized> ObserverState<T> for StringObserverState {
+    fn observe(value: &T) -> Self {
         Self {
-            append_index: value.len(),
+            append_index: value.as_ref().len(),
             truncate_len: 0,
         }
     }
 }
 
-impl ShallowSerializeObserverState<str> for StringObserverState {
-    fn flush(&mut self, value: &str) -> Mutations {
+impl<T: AsRef<str> + ?Sized> SerializeObserverState<T> for StringObserverState {
+    fn flush(&mut self, value: &T) -> Mutations {
+        let value = value.as_ref();
         let len = value.len();
         let append_index = std::mem::replace(&mut self.append_index, len);
         let truncate_len = std::mem::replace(&mut self.truncate_len, 0);
@@ -61,13 +62,13 @@ impl ShallowSerializeObserverState<str> for StringObserverState {
             #[cfg(feature = "truncate")]
             mutations.extend(MutationKind::Truncate(truncate_len));
             #[cfg(not(feature = "truncate"))]
-            return Mutations::replace(&*value);
+            return Mutations::replace(value);
         }
         if len > append_index {
             #[cfg(feature = "append")]
             mutations.extend(Mutations::append(&value[append_index..]));
             #[cfg(not(feature = "append"))]
-            return Mutations::replace(&*value);
+            return Mutations::replace(value);
         }
         mutations
     }

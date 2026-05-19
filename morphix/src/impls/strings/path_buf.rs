@@ -12,7 +12,7 @@ use super::os_string::OsStringObserver;
 use super::path::PathObserver;
 use super::TruncateLen;
 use crate::helper::macros::{default_impl_ref_observe, delegate_methods};
-use crate::helper::shallow::{ShallowDelegate, ShallowObserverState, ShallowSerializeObserverState};
+use crate::helper::shallow::{ShallowDelegate, ObserverState, SerializeObserverState};
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
 use crate::observe::{DefaultSpec, Observer, SerializeObserver};
 use crate::{MutationKind, Mutations, Observe};
@@ -50,7 +50,7 @@ impl<T: ?Sized> Invalidate<T> for PathBufObserverState {
     }
 }
 
-impl ShallowObserverState<Path> for PathBufObserverState {
+impl ObserverState<Path> for PathBufObserverState {
     fn observe(value: &Path) -> Self {
         Self {
             append_index: value.as_os_str().len(),
@@ -59,7 +59,7 @@ impl ShallowObserverState<Path> for PathBufObserverState {
     }
 }
 
-impl ShallowSerializeObserverState<Path> for PathBufObserverState {
+impl SerializeObserverState<Path> for PathBufObserverState {
     fn flush(&mut self, value: &Path) -> Mutations {
         let truncate_len = std::mem::replace(&mut self.truncate_len, 0);
         let Some(str) = value.to_str() else {

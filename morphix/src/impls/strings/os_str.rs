@@ -8,9 +8,8 @@ use std::os::windows::ffi::OsStrExt;
 use std::ptr::NonNull;
 
 use crate::Mutations;
-use crate::general::{DebugHandler, GeneralHandler, GeneralObserver, SerializeHandler};
 use crate::helper::macros::delegate_methods;
-use crate::helper::shallow::shallow_observer;
+use crate::helper::shallow::{ObserverState, SerializeObserverState, shallow_observer};
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, QuasiObserver, Unsigned};
 use crate::observe::{DefaultSpec, Observe, RefObserve};
 
@@ -49,27 +48,25 @@ where
     }
 }
 
-pub struct OsStrHandler {
+pub struct OsStrRefObserverState {
     raw_parts: Option<(NonNull<()>, usize)>,
 }
 
-impl Invalidate<OsStr> for OsStrHandler {
+impl Invalidate<OsStr> for OsStrRefObserverState {
     fn invalidate(&mut self, value: &OsStr) {
         self.raw_parts
             .get_or_insert_with(|| (NonNull::from(value).cast::<()>(), os_str_len(value)));
     }
 }
 
-impl GeneralHandler for OsStrHandler {
-    type Target = OsStr;
-
+impl ObserverState<OsStr> for OsStrRefObserverState {
     fn observe(_: &OsStr) -> Self {
         Self { raw_parts: None }
     }
 }
 
-impl SerializeHandler for OsStrHandler {
-    unsafe fn flush(&mut self, value: &OsStr) -> Mutations {
+impl SerializeObserverState<OsStr> for OsStrRefObserverState {
+    fn flush(&mut self, value: &OsStr) -> Mutations {
         let Some((old_addr, old_len)) = self.raw_parts.take() else {
             return Mutations::new();
         };
@@ -105,10 +102,6 @@ impl SerializeHandler for OsStrHandler {
     }
 }
 
-impl DebugHandler for OsStrHandler {
-    const NAME: &'static str = "OsStrHandler";
-}
-
 impl Observe for OsStr {
     type Observer<'ob, S, D>
         = OsStrObserver<'ob, bool, S, D>
@@ -122,7 +115,7 @@ impl Observe for OsStr {
 
 impl RefObserve for OsStr {
     type Observer<'ob, S, D>
-        = GeneralObserver<'ob, OsStrHandler, S, D>
+        = OsStrObserver<'ob, OsStrRefObserverState, S, D>
     where
         Self: 'ob,
         D: Unsigned,
