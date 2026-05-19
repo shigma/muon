@@ -1,6 +1,6 @@
 [package]
 name = "morphix"
-version = "0.19.1"
+version = "0.19.2"
 edition = "2024"
 license = "MIT"
 authors = [
@@ -52,5 +52,5 @@ serde = { version = "1.0.228", features = ["derive"] }
 # Third party integrations
 chrono = { version = "0.4.43" }
 indexmap = { version = "2.13.0" }
-url = { version = "2" }
+url = { version = "2.5.8" }
 uuid = { version = "1.20.0" }
