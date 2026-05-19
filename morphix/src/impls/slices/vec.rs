@@ -3,6 +3,7 @@
 use std::cell::UnsafeCell;
 use std::collections::TryReserveError;
 use std::fmt::Debug;
+use std::io::Write;
 use std::mem::MaybeUninit;
 use std::ops::{Bound, Deref, DerefMut, Index, IndexMut, RangeBounds};
 use std::slice::SliceIndex;
@@ -121,35 +122,36 @@ where
 {
     type Target = [O::Head];
     fn flush(&mut self, ptr: &mut Pointer<S>) -> Mutations {
-        // Drop stale inner observers beyond `append_index`. Elements in this region were popped
-        // since the last flush; their observers carry outdated state. Truncating here lets
-        // `relocate` create fresh observers for the newly appended elements at these indices.
-        self.inner.get_mut().truncate(self.append_index);
-
         // `relocate` must precede `Mutations::append`: `relocate` takes `&mut slice` (Unique
         // function-entry retag over the full slice), which would invalidate a `SerializeRef`'s
         // SRO tag if the append mutation were created first.
         let slice = (**ptr).as_deref_mut();
-        unsafe { self.relocate(slice) }
+        // Passing `..self.append_index` drops stale inner observers beyond `append_index`
+        // (elements popped since last flush) via `relocate`'s internal truncate.
+        unsafe { self.relocate(&mut slice[..self.append_index]) }
 
         let append_index = core::mem::replace(&mut self.append_index, slice.len());
         let truncate_len = core::mem::replace(&mut self.truncate_len, 0);
-        let mut mutations = Mutations::new();
-        if truncate_len > 0 {
-            #[cfg(feature = "truncate")]
-            mutations.extend(MutationKind::Truncate(truncate_len));
-            #[cfg(not(feature = "truncate"))]
-            return Mutations::replace(slice);
-        }
-        if slice.len() > append_index {
-            #[cfg(feature = "append")]
-            mutations.extend(Mutations::append(&slice[append_index..]));
-            #[cfg(not(feature = "append"))]
+
+        if cfg!(not(feature = "truncate")) && truncate_len > 0
+            || cfg!(not(feature = "append")) && slice.len() > append_index
+        {
+            self.inner.get_mut().clear();
             return Mutations::replace(slice);
         }
 
+        let mut mutations = Mutations::new();
+        #[cfg(feature = "truncate")]
+        if truncate_len > 0 {
+            mutations.extend(MutationKind::Truncate(truncate_len));
+        }
+        #[cfg(feature = "append")]
+        if slice.len() > append_index {
+            mutations.extend(Mutations::append(&slice[append_index..]));
+        }
+
         let mut is_replace = true;
-        for (index, ob) in self.inner.get_mut().iter_mut().take(append_index).enumerate().rev() {
+        for (index, ob) in self.inner.get_mut().iter_mut().enumerate().rev() {
             let mutations_i = unsafe { SerializeObserver::flush(ob) };
             is_replace &= mutations_i.is_replace();
             mutations.insert(PathSegment::Negative(slice.len() - index), mutations_i);
@@ -483,6 +485,21 @@ where
     }
 }
 
+impl<O, S: ?Sized, D> Write for VecObserver<O, S, D>
+where
+    D: Unsigned,
+    S: AsDerefMut<D, Target = Vec<u8>>,
+    O: Observer<InnerDepth = Zero, Head = u8>,
+{
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.untracked_mut().write(buf)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 impl<O, S: ?Sized, D> Debug for VecObserver<O, S, D>
 where
     D: Unsigned,
@@ -634,6 +651,7 @@ impl<T: Snapshot> Snapshot for Vec<T> {
 }
 
 #[cfg(test)]
+#[cfg(feature = "truncate")]
 mod tests {
     use morphix_test_utils::*;
     use serde_json::json;
@@ -991,5 +1009,26 @@ mod tests {
         inserted.push_str("!");
         let Json(mutation) = ob.flush().unwrap();
         assert_eq!(mutation, Some(append!(_, json!(["d!"]))));
+    }
+}
+
+#[cfg(test)]
+#[cfg(not(feature = "truncate"))]
+mod tests_no_truncate {
+    use serde_json::json;
+
+    use crate::adapter::Json;
+    use crate::observe::{ObserveExt, SerializeObserverExt};
+
+    #[test]
+    fn modify_then_pop_no_stale_leak() {
+        let mut vec = vec!["a".to_string(), "b".to_string()];
+        let mut ob = vec.__observe();
+        ob[0].push_str("!");
+        ob.pop();
+        let Json(m1) = ob.flush().unwrap();
+        assert_eq!(m1, Some(morphix_test_utils::replace!(_, json!(["a!"]))));
+        let Json(m2) = ob.flush().unwrap();
+        assert_eq!(m2, None);
     }
 }

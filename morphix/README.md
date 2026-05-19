@@ -244,9 +244,9 @@ The `observe!` macro needs to transform assignment and comparison expressions to
 
 For these transformations to work, `tracked_mut` and `untracked_ref` must be callable on both observers and plain references. This is achieved through autoref-based specialization: `QuasiObserver` is implemented for `&T` and `&mut T` (where all methods reduce to identity), and Rust's method resolution naturally selects the observer implementation when called on an observer, or the reference implementation when called on a plain value. The name "quasi-observer" reflects this dual nature — plain references are not real observers, but they participate in the same interface.
 
-## Minimum Supported Rust Version
+## MSRV
 
-The MSRV of morphix is **1.89.0**.
+The minimum supported Rust version of morphix is **1.89.0**.
 
 Some APIs require newer Rust versions and are gated with `#[rustversion::since(...)]`.
 
