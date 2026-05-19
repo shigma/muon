@@ -8,9 +8,9 @@ use std::slice::SliceIndex;
 use std::string::Drain;
 
 use crate::helper::macros::{default_impl_ref_observe, delegate_methods};
-use crate::helper::shallow::ShallowMut;
-use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
-use crate::impls::strings::str::{StrObserver, StrObserverState, StrSerializeObserverState};
+use crate::helper::shallow::{ShallowMut, ShallowObserverState, ShallowSerializeObserverState};
+use crate::helper::{AsDeref, AsDerefMut, Invalidate, QuasiObserver, Succ, Unsigned, Zero};
+use crate::impls::strings::str::StrObserver;
 use crate::observe::{DefaultSpec, Observer, SerializeObserver};
 use crate::{MutationKind, Mutations, Observe};
 
@@ -49,7 +49,7 @@ impl Invalidate<()> for StringObserverState {
     }
 }
 
-impl StrObserverState for StringObserverState {
+impl ShallowObserverState<str> for StringObserverState {
     fn observe(value: &str) -> Self {
         Self {
             append_index: value.len(),
@@ -58,13 +58,8 @@ impl StrObserverState for StringObserverState {
     }
 }
 
-impl<S: ?Sized, D> StrSerializeObserverState<S, D> for StringObserverState
-where
-    D: Unsigned,
-    S: AsDeref<D, Target = str>,
-{
-    fn flush(&mut self, ptr: &mut Pointer<S>) -> Mutations {
-        let value = (**ptr).as_deref();
+impl ShallowSerializeObserverState<str> for StringObserverState {
+    fn flush(&mut self, value: &str) -> Mutations {
         let len = value.len();
         let append_index = std::mem::replace(&mut self.append_index, len);
         let truncate_len = std::mem::replace(&mut self.truncate_len, 0);
@@ -76,13 +71,13 @@ where
             #[cfg(feature = "truncate")]
             mutations.extend(MutationKind::Truncate(truncate_len));
             #[cfg(not(feature = "truncate"))]
-            return Mutations::replace(value);
+            return Mutations::replace(&*value);
         }
         if len > append_index {
             #[cfg(feature = "append")]
             mutations.extend(Mutations::append(&value[append_index..]));
             #[cfg(not(feature = "append"))]
-            return Mutations::replace(value);
+            return Mutations::replace(&*value);
         }
         mutations
     }

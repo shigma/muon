@@ -14,7 +14,7 @@ use crate::observe::DefaultSpec;
 
 shallow_observer! {
     /// Observer implementation for [`HashSet<T>`].
-    struct HashSetObserver(for<T> HashSet<T>);
+    struct HashSetObserver(use<T> HashSet<T>);
 }
 
 struct LenGuard<'a, T> {

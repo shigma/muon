@@ -12,7 +12,7 @@ use crate::observe::DefaultSpec;
 
 shallow_observer! {
     /// Observer implementation for [`BinaryHeap<T>`].
-    struct BinaryHeapObserver(for<T> BinaryHeap<T>);
+    struct BinaryHeapObserver(use<T> BinaryHeap<T>);
 }
 
 /// Handle produced by [`BinaryHeapObserver::peek_mut`].

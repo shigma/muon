@@ -77,7 +77,7 @@ impl<T: Clone + Ord> ShallowObserverState<BTreeSet<T>> for BTreeSetObserverState
 }
 
 impl<T: Serialize + Clone + Ord + 'static> ShallowSerializeObserverState<BTreeSet<T>> for BTreeSetObserverState<T> {
-    fn flush(&mut self, set: &mut BTreeSet<T>) -> Mutations {
+    fn flush(&mut self, set: &BTreeSet<T>) -> Mutations {
         let truncate_len = std::mem::replace(&mut self.truncate_len, 0);
         let boundary = std::mem::replace(&mut self.boundary, set.last().cloned());
 

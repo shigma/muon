@@ -9,9 +9,10 @@ use std::os::unix::ffi::OsStrExt;
 #[cfg(windows)]
 use std::os::windows::ffi::OsStrExt;
 
-use super::os_str::{OsStrObserver, OsStrObserverState, OsStrSerializeObserverState, os_str_len};
+use super::os_str::{OsStrObserver, os_str_len};
 use crate::helper::macros::{default_impl_ref_observe, delegate_methods};
-use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
+use crate::helper::shallow::{ShallowObserverState, ShallowSerializeObserverState};
+use crate::helper::{AsDeref, AsDerefMut, Invalidate, QuasiObserver, Succ, Unsigned, Zero};
 use crate::observe::{DefaultSpec, Observer, SerializeObserver};
 use crate::{MutationKind, Mutations, Observe};
 
@@ -43,7 +44,7 @@ impl Invalidate<()> for OsStringObserverState {
     }
 }
 
-impl OsStrObserverState for OsStringObserverState {
+impl ShallowObserverState<OsStr> for OsStringObserverState {
     fn observe(value: &OsStr) -> Self {
         Self {
             append_index: os_str_len(value),
@@ -52,25 +53,20 @@ impl OsStrObserverState for OsStringObserverState {
     }
 }
 
-impl<S: ?Sized, D> OsStrSerializeObserverState<S, D> for OsStringObserverState
-where
-    D: Unsigned,
-    S: AsDeref<D, Target = OsStr>,
-{
-    fn flush(&mut self, ptr: &mut Pointer<S>) -> Mutations {
-        let value = (**ptr).as_deref();
+impl ShallowSerializeObserverState<OsStr> for OsStringObserverState {
+    fn flush(&mut self, value: &OsStr) -> Mutations {
         let new_len = os_str_len(value);
         let append_index = std::mem::replace(&mut self.append_index, new_len);
         let truncate_len = std::mem::replace(&mut self.truncate_len, 0);
         if append_index == 0 && truncate_len > 0 {
-            return Mutations::replace(value);
+            return Mutations::replace(value as &OsStr);
         }
         let mut mutations = Mutations::new();
         if truncate_len > 0 {
             #[cfg(feature = "truncate")]
             mutations.extend(MutationKind::Truncate(truncate_len));
             #[cfg(not(feature = "truncate"))]
-            return Mutations::replace(value);
+            return Mutations::replace(value as &OsStr);
         }
         if new_len > append_index {
             #[cfg(feature = "append")]
@@ -83,7 +79,7 @@ where
                 ));
             }
             #[cfg(not(feature = "append"))]
-            return Mutations::replace(value);
+            return Mutations::replace(value as &OsStr);
         }
         #[cfg(unix)]
         return mutations.with_prefix("Unix");
@@ -214,7 +210,7 @@ impl<'ob, V, S: ?Sized, D> Index<RangeFull> for OsStringObserver<'ob, V, S, D>
 where
     V: Invalidate<OsStr>,
     D: Unsigned,
-    S: AsDeref<D, Target = OsString>,
+    S: AsDerefMut<D, Target = OsString>,
 {
     type Output = OsStr;
 
@@ -241,7 +237,7 @@ impl<'ob, V, S: ?Sized, D> Debug for OsStringObserver<'ob, V, S, D>
 where
     V: Invalidate<OsStr>,
     D: Unsigned,
-    S: AsDeref<D, Target = OsString>,
+    S: AsDerefMut<D, Target = OsString>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_tuple("OsStringObserver").field(&self.untracked_ref()).finish()
@@ -252,94 +248,10 @@ impl<'ob, V, S: ?Sized, D> Display for OsStringObserver<'ob, V, S, D>
 where
     V: Invalidate<OsStr>,
     D: Unsigned,
-    S: AsDeref<D, Target = OsString>,
+    S: AsDerefMut<D, Target = OsString>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Display::fmt(&self.untracked_ref().to_string_lossy(), f)
-    }
-}
-
-macro_rules! generic_impl_partial_eq {
-    ($(impl $([$($gen:tt)*])? PartialEq<$ty:ty> for OsString);* $(;)?) => {
-        $(
-            impl<'ob, $($($gen)*,)? V, S: ?Sized, D> PartialEq<$ty> for OsStringObserver<'ob, V, S, D>
-            where
-                V: Invalidate<OsStr>,
-                D: Unsigned,
-                S: AsDeref<D, Target = OsString>,
-                OsString: PartialEq<$ty>,
-            {
-                fn eq(&self, other: &$ty) -> bool {
-                    self.untracked_ref().eq(other)
-                }
-            }
-        )*
-    };
-}
-
-generic_impl_partial_eq! {
-    impl PartialEq<OsString> for OsString;
-    impl PartialEq<str> for OsString;
-    impl PartialEq<OsStr> for OsString;
-    impl ['a] PartialEq<&'a str> for OsString;
-    impl ['a] PartialEq<&'a OsStr> for OsString;
-}
-
-impl<'ob, V1, V2, S1, S2, D1, D2> PartialEq<OsStringObserver<'ob, V2, S2, D2>> for OsStringObserver<'ob, V1, S1, D1>
-where
-    V1: Invalidate<OsStr>,
-    V2: Invalidate<OsStr>,
-    D1: Unsigned,
-    D2: Unsigned,
-    S1: AsDeref<D1, Target = OsString>,
-    S2: AsDeref<D2, Target = OsString>,
-{
-    fn eq(&self, other: &OsStringObserver<'ob, V2, S2, D2>) -> bool {
-        self.untracked_ref().eq(other.untracked_ref())
-    }
-}
-
-impl<'ob, V, S, D> Eq for OsStringObserver<'ob, V, S, D>
-where
-    V: Invalidate<OsStr>,
-    D: Unsigned,
-    S: AsDeref<D, Target = OsString>,
-{
-}
-
-impl<'ob, V, S, D> PartialOrd<OsString> for OsStringObserver<'ob, V, S, D>
-where
-    V: Invalidate<OsStr>,
-    D: Unsigned,
-    S: AsDeref<D, Target = OsString>,
-{
-    fn partial_cmp(&self, other: &OsString) -> Option<std::cmp::Ordering> {
-        self.untracked_ref().partial_cmp(other)
-    }
-}
-
-impl<'ob, V1, V2, S1, S2, D1, D2> PartialOrd<OsStringObserver<'ob, V2, S2, D2>> for OsStringObserver<'ob, V1, S1, D1>
-where
-    V1: Invalidate<OsStr>,
-    V2: Invalidate<OsStr>,
-    D1: Unsigned,
-    D2: Unsigned,
-    S1: AsDeref<D1, Target = OsString>,
-    S2: AsDeref<D2, Target = OsString>,
-{
-    fn partial_cmp(&self, other: &OsStringObserver<'ob, V2, S2, D2>) -> Option<std::cmp::Ordering> {
-        self.untracked_ref().partial_cmp(other.untracked_ref())
-    }
-}
-
-impl<'ob, V, S, D> Ord for OsStringObserver<'ob, V, S, D>
-where
-    V: Invalidate<OsStr>,
-    D: Unsigned,
-    S: AsDeref<D, Target = OsString>,
-{
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.untracked_ref().cmp(other.untracked_ref())
     }
 }
 

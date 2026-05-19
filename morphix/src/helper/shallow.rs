@@ -32,12 +32,12 @@ pub trait ShallowSerializeObserverState<T: ?Sized>: ShallowObserverState<T> {
     /// Consumes accumulated mutation state and returns collected [`Mutations`].
     ///
     /// Must fully reset internal state so an immediately subsequent call returns empty.
-    fn flush(&mut self, value: &mut T) -> Mutations;
+    fn flush(&mut self, value: &T) -> Mutations;
 
     /// Flat-flush variant for `#[serde(flatten)]` fields.
     ///
     /// Default implementation panics. Override for map-like types that support flattening.
-    fn flat_flush(&mut self, _value: &mut T) -> Mutations {
+    fn flat_flush(&mut self, _value: &T) -> Mutations {
         panic!("flat_flush is not supported for this type")
     }
 }
@@ -49,7 +49,7 @@ impl<T: ?Sized> ShallowObserverState<T> for bool {
 }
 
 impl<T: serde::Serialize + 'static + ?Sized> ShallowSerializeObserverState<T> for bool {
-    fn flush(&mut self, value: &mut T) -> Mutations {
+    fn flush(&mut self, value: &T) -> Mutations {
         if std::mem::take(self) {
             Mutations::replace(value)
         } else {
@@ -127,9 +127,9 @@ impl<'ob, T: Debug + ?Sized, V: ?Sized> Debug for ShallowMut<'ob, T, V> {
 ///
 /// ## Syntax
 ///
-/// - `struct $ob(for<T> $ty)` — uses `bool` as the state type; `T` is type-only (impl bounds).
+/// - `struct $ob(use<T> $ty)` — uses `bool` as the state type; `T` is type-only (impl bounds).
 /// - `struct $ob<T>($ty, $state)` — `T` goes on the struct (appears in `$state`).
-/// - `struct $ob<K, O>(for<V> $ty, $state)` — `K, O` on struct, `V` type-only.
+/// - `struct $ob<K, O>(use<V> $ty, $state)` — `K, O` on struct, `V` type-only.
 ///
 /// Single-param forms (state = `bool`) also generate [`Observe`](crate::Observe).
 /// Two-param forms do NOT generate `Observe` — write it by hand with appropriate bounds.
@@ -166,32 +166,32 @@ macro_rules! __shallow_observer {
         $crate::__shallow_observer!(@gen $(#[$meta])* struct $ob [$($gen)* $tt] $($rest)*);
     };
 
-    // Single-param with for<>: ty_gen in impls only, state = bool
-    (@impl $(#[$meta:meta])* struct $ob:ident [$($sg:tt)*] (for<$($tg:ident),*> $ty:ty);) => {
-        $crate::__shallow_observer!(@impl $(#[$meta])* struct $ob [$($sg)*] (for<$($tg),*> $ty, bool););
+    // Single-param with use<>: ty_gen in impls only, state = bool
+    (@impl $(#[$meta:meta])* struct $ob:ident [$($sg:tt)*] (use<$($tg:ident),*> $ty:ty);) => {
+        $crate::__shallow_observer!(@impl_body $(#[$meta])* struct $ob [$($sg)* $($tg,)*] [$($sg)*] ( $ty) ( bool););
     };
 
-    // Single-param without for<>: no ty_gen, state = bool
+    // Single-param without use<>: no ty_gen, state = bool
     (@impl $(#[$meta:meta])* struct $ob:ident [$($sg:tt)*] ($ty:ty);) => {
-        $crate::__shallow_observer!(@impl $(#[$meta])* struct $ob [$($sg)*] ($ty, bool););
+        $crate::__shallow_observer!(@impl_body $(#[$meta])* struct $ob [$($sg)*] [$($sg)*] ( $ty) ( bool););
     };
 
-    // Two-param with for<>: ty_gen in impls only, state_gen on struct
-    (@impl $(#[$meta:meta])* struct $ob:ident [$($sg:tt)*] (for<$($tg:ident),*> $ty:ty, $state:ty);) => {
-        $crate::__shallow_observer!(@impl_body $(#[$meta])* struct $ob [$($sg)* $($tg,)*] [$($sg)*] ($ty) ($state););
+    // Two-param with use<>: ty_gen in impls only, state_gen on struct
+    (@impl $(#[$meta:meta])* struct $ob:ident [$($sg:tt)*] (use<$($tg:ident),*> $vis_ptr:vis $ty:ty, $vis_state:vis $state:ty);) => {
+        $crate::__shallow_observer!(@impl_body $(#[$meta])* struct $ob [$($sg)* $($tg,)*] [$($sg)*] ($vis_ptr $ty) ($vis_state $state););
     };
 
-    // Two-param without for<>: state_gen on struct
-    (@impl $(#[$meta:meta])* struct $ob:ident [$($sg:tt)*] ($ty:ty, $state:ty);) => {
-        $crate::__shallow_observer!(@impl_body $(#[$meta])* struct $ob [$($sg)*] [$($sg)*] ($ty) ($state););
+    // Two-param without use<>: state_gen on struct
+    (@impl $(#[$meta:meta])* struct $ob:ident [$($sg:tt)*] ($vis_ptr:vis $ty:ty, $vis_state:vis $state:ty);) => {
+        $crate::__shallow_observer!(@impl_body $(#[$meta])* struct $ob [$($sg)*] [$($sg)*] ($vis_ptr $ty) ($vis_state $state););
     };
 
-    (@impl_body $(#[$meta:meta])* struct $ob:ident [$($tg:tt)*] [$($sg:tt)*] ($ty:ty) ($state:ty);) => {
+    (@impl_body $(#[$meta:meta])* struct $ob:ident [$($tg:tt)*] [$($sg:tt)*] ($vis_ptr:vis $ty:ty) ($vis_state:vis $state:ty);) => {
         $(#[$meta])*
         pub struct $ob<'ob, $($sg)* S: ?Sized, D = $crate::helper::Zero> {
-            ptr: $crate::helper::Pointer<S>,
-            state: $state,
-            phantom: ::std::marker::PhantomData<&'ob mut D>,
+            $vis_ptr ptr: $crate::helper::Pointer<S>,
+            $vis_state state: $state,
+            pub(crate) phantom: ::std::marker::PhantomData<&'ob mut D>,
         }
 
         impl<'ob, $($sg)* S: ?Sized, D> ::std::ops::Deref for $ob<'ob, $($sg)* S, D> {
@@ -253,20 +253,20 @@ macro_rules! __shallow_observer {
         impl<'ob, $($tg)* S: ?Sized, D> $crate::observe::SerializeObserver for $ob<'ob, $($sg)* S, D>
         where
             D: $crate::helper::Unsigned,
-            S: $crate::helper::AsDerefMut<D, Target = $ty>,
+            S: $crate::helper::AsDeref<D, Target = $ty>,
             $state: $crate::helper::shallow::ShallowSerializeObserverState<$ty>,
         {
             unsafe fn flush(this: &mut Self) -> $crate::mutation::Mutations {
                 $crate::helper::shallow::ShallowSerializeObserverState::flush(
                     &mut this.state,
-                    (*this.ptr).as_deref_mut(),
+                    (*this.ptr).as_deref(),
                 )
             }
 
             unsafe fn flat_flush(this: &mut Self) -> $crate::mutation::Mutations {
                 $crate::helper::shallow::ShallowSerializeObserverState::flat_flush(
                     &mut this.state,
-                    (*this.ptr).as_deref_mut(),
+                    (*this.ptr).as_deref(),
                 )
             }
         }
@@ -294,7 +294,7 @@ macro_rules! __shallow_observer {
             }
         }
 
-        impl<'ob, $($tg)* S: ?Sized, D> PartialEq<$ob<'ob, $($sg)* S, D>> for $ob<'ob, $($sg)* S, D>
+        impl<'ob, $($tg)* S: ?Sized, D> PartialEq for $ob<'ob, $($sg)* S, D>
         where
             D: $crate::helper::Unsigned,
             S: $crate::helper::AsDeref<D, Target = $ty>,
@@ -315,7 +315,8 @@ macro_rules! __shallow_observer {
         {
         }
 
-        impl<'ob, $($tg)* S: ?Sized, D> PartialOrd<$ob<'ob, $($sg)* S, D>> for $ob<'ob, $($sg)* S, D>
+        #[allow(clippy::non_canonical_partial_ord_impl)]
+        impl<'ob, $($tg)* S: ?Sized, D> PartialOrd for $ob<'ob, $($sg)* S, D>
         where
             D: $crate::helper::Unsigned,
             S: $crate::helper::AsDeref<D, Target = $ty>,

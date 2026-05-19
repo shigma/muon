@@ -1,100 +1,20 @@
 //! Observer implementation for [`str`].
 
-use std::fmt::{Debug, Display};
+use std::fmt::Display;
 use std::marker::PhantomData;
-use std::ops::{Deref, DerefMut, Index, IndexMut};
+use std::ops::{Index, IndexMut};
 use std::slice::SliceIndex;
 
 use crate::general::{Unsize, UnsizeObserver};
 use crate::helper::macros::delegate_methods;
-use crate::helper::shallow::{ShallowDelegate, ShallowMut};
-use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
+use crate::helper::shallow::{ShallowDelegate, ShallowMut, shallow_observer};
+use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Unsigned, Zero};
 use crate::impls::strings::string::StringObserverState;
-use crate::mutation::Mutations;
-use crate::observe::{DefaultSpec, Observe, Observer, RefObserve, SerializeObserver};
+use crate::observe::{DefaultSpec, Observe, RefObserve};
 
-/// Trait for managing the internal state of a [`StrObserver`].
-pub trait StrObserverState: Invalidate<str> + Sized {
-    /// Creates state observing the given `str`.
-    fn observe(value: &str) -> Self;
-}
-
-/// Flush logic for str-backed observer state, parameterized by `S` and `D`.
-pub trait StrSerializeObserverState<S: ?Sized, D>: Invalidate<str> {
-    /// Consumes the accumulated mutation state and returns the collected [`Mutations`].
-    ///
-    /// Must fully reset internal state so an immediately subsequent call returns empty.
-    fn flush(&mut self, ptr: &mut Pointer<S>) -> Mutations;
-}
-
-/// Observer implementation for [`str`].
-pub struct StrObserver<'ob, V, S: ?Sized, D = Zero> {
-    pub(super) ptr: Pointer<S>,
-    pub(super) state: V,
-    phantom: PhantomData<&'ob mut D>,
-}
-
-impl<'ob, V, S: ?Sized, D> Deref for StrObserver<'ob, V, S, D> {
-    type Target = Pointer<S>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.ptr
-    }
-}
-
-impl<'ob, V, S: ?Sized, D> DerefMut for StrObserver<'ob, V, S, D> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        std::ptr::from_mut(self).expose_provenance();
-        Pointer::invalidate(&mut self.ptr);
-        &mut self.ptr
-    }
-}
-
-impl<'ob, V, S: ?Sized, D> QuasiObserver for StrObserver<'ob, V, S, D>
-where
-    V: Invalidate<str>,
-    D: Unsigned,
-    S: AsDeref<D, Target = str>,
-{
-    type Head = S;
-    type OuterDepth = Succ<Zero>;
-    type InnerDepth = D;
-
-    fn invalidate(this: &mut Self) {
-        Invalidate::invalidate(&mut this.state, (*this.ptr).as_deref());
-    }
-}
-
-impl<'ob, V, S: ?Sized, D> Observer for StrObserver<'ob, V, S, D>
-where
-    V: StrObserverState,
-    D: Unsigned,
-    S: AsDerefMut<D, Target = str>,
-{
-    fn observe(head: &mut Self::Head) -> Self {
-        let this = Self {
-            state: V::observe(head.as_deref_mut()),
-            ptr: Pointer::new(head),
-            phantom: PhantomData,
-        };
-        Pointer::register_state::<_, D>(&this.ptr, &this.state);
-        this
-    }
-
-    unsafe fn relocate(this: &mut Self, head: &mut Self::Head) {
-        Pointer::set(this, head);
-    }
-}
-
-impl<'ob, V, S: ?Sized, D> SerializeObserver for StrObserver<'ob, V, S, D>
-where
-    V: StrSerializeObserverState<S, D>,
-    D: Unsigned,
-    S: AsDeref<D, Target = str>,
-{
-    unsafe fn flush(this: &mut Self) -> Mutations {
-        this.state.flush(&mut this.ptr)
-    }
+shallow_observer! {
+    /// Observer implementation for [`str`].
+    struct StrObserver<V>(pub(crate) str, pub(crate) V);
 }
 
 impl<'ob, V, S: ?Sized, D> StrObserver<'ob, V, S, D>
@@ -241,17 +161,6 @@ where
     }
 }
 
-impl<'ob, V, S: ?Sized, D> Debug for StrObserver<'ob, V, S, D>
-where
-    V: Invalidate<str>,
-    D: Unsigned,
-    S: AsDeref<D, Target = str>,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("StrObserver").field(&self.untracked_ref()).finish()
-    }
-}
-
 impl<'ob, V, S: ?Sized, D> Display for StrObserver<'ob, V, S, D>
 where
     V: Invalidate<str>,
@@ -261,44 +170,6 @@ where
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Display::fmt(self.untracked_ref(), f)
     }
-}
-
-macro_rules! generic_impl_cmp {
-    ($(impl $([$($gen:tt)*])? _ for $ty:ty);* $(;)?) => {
-        $(
-            impl<'ob, $($($gen)*,)? V, S: ?Sized, D> PartialEq<$ty> for StrObserver<'ob, V, S, D>
-            where
-                D: Unsigned,
-                S: AsDeref<D>,
-                S::Target: PartialEq<$ty>,
-            {
-                fn eq(&self, other: &$ty) -> bool {
-                    (***self).as_deref().eq(other)
-                }
-            }
-
-            impl<'ob, $($($gen)*,)? V, S: ?Sized, D> PartialOrd<$ty> for StrObserver<'ob, V, S, D>
-            where
-                D: Unsigned,
-                S: AsDeref<D>,
-                S::Target: PartialOrd<$ty>,
-            {
-                fn partial_cmp(&self, other: &$ty) -> Option<std::cmp::Ordering> {
-                    (***self).as_deref().partial_cmp(other)
-                }
-            }
-        )*
-    };
-}
-
-generic_impl_cmp! {
-    impl _ for str;
-    impl _ for String;
-    impl _ for std::ffi::OsStr;
-    impl _ for std::ffi::OsString;
-    impl _ for std::path::Path;
-    impl _ for std::path::PathBuf;
-    impl ['a] _ for std::borrow::Cow<'a, str>;
 }
 
 impl Unsize for str {
@@ -342,12 +213,12 @@ mod tests {
 
     use super::*;
     use crate::adapter::Json;
-    use crate::observe::SerializeObserverExt;
+    use crate::observe::{ObserveExt, SerializeObserverExt};
 
     #[test]
     fn split_at_mut() {
         let mut s = String::from("hello world");
-        let mut ob: StrObserver<'_, StringObserverState, str> = Observer::observe(&mut s[..]);
+        let mut ob: StrObserver<'_, StringObserverState, str> = s[..].__observe();
         let (mut left, mut right) = ob.split_at_mut(5);
         // SAFETY: ASCII-for-ASCII replacement preserves utf-8.
         unsafe {

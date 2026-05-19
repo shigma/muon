@@ -9,9 +9,9 @@ use std::path::{Path, PathBuf};
 
 use super::os_str::OsStrObserver;
 use super::os_string::OsStringObserver;
-use super::path::{PathObserver, PathObserverState, PathSerializeObserverState};
+use super::path::PathObserver;
 use crate::helper::macros::{default_impl_ref_observe, delegate_methods};
-use crate::helper::shallow::ShallowDelegate;
+use crate::helper::shallow::{ShallowDelegate, ShallowObserverState, ShallowSerializeObserverState};
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
 use crate::observe::{DefaultSpec, Observer, SerializeObserver};
 use crate::{MutationKind, Mutations, Observe};
@@ -49,7 +49,7 @@ impl<T: ?Sized> Invalidate<T> for PathBufObserverState {
     }
 }
 
-impl PathObserverState for PathBufObserverState {
+impl ShallowObserverState<Path> for PathBufObserverState {
     fn observe(value: &Path) -> Self {
         Self {
             append_index: value.as_os_str().len(),
@@ -58,34 +58,29 @@ impl PathObserverState for PathBufObserverState {
     }
 }
 
-impl<S: ?Sized, D> PathSerializeObserverState<S, D> for PathBufObserverState
-where
-    D: Unsigned,
-    S: AsDeref<D, Target = Path>,
-{
-    fn flush(&mut self, ptr: &mut Pointer<S>) -> Mutations {
-        let value = (**ptr).as_deref();
+impl ShallowSerializeObserverState<Path> for PathBufObserverState {
+    fn flush(&mut self, value: &Path) -> Mutations {
         let truncate_len = std::mem::replace(&mut self.truncate_len, 0);
         let Some(str) = value.to_str() else {
             self.append_index = 0;
-            return Mutations::replace(value);
+            return Mutations::replace(value as &Path);
         };
         let old_append_index = std::mem::replace(&mut self.append_index, str.len());
         if old_append_index == 0 && truncate_len > 0 {
-            return Mutations::replace(value);
+            return Mutations::replace(value as &Path);
         }
         let mut mutations = Mutations::new();
         if truncate_len > 0 {
             #[cfg(feature = "truncate")]
             mutations.extend(MutationKind::Truncate(truncate_len));
             #[cfg(not(feature = "truncate"))]
-            return Mutations::replace(value);
+            return Mutations::replace(value as &Path);
         }
         if str.len() > old_append_index {
             #[cfg(feature = "append")]
             mutations.extend(Mutations::append(&str[old_append_index..]));
             #[cfg(not(feature = "append"))]
-            return Mutations::replace(value);
+            return Mutations::replace(value as &Path);
         }
         mutations
     }
@@ -264,83 +259,6 @@ where
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Display::fmt(&self.untracked_ref().display(), f)
-    }
-}
-
-macro_rules! generic_impl_partial_eq {
-    ($(impl $([$($gen:tt)*])? PartialEq<$ty:ty> for PathBuf);* $(;)?) => {
-        $(
-            impl<'ob, $($($gen)*,)? S: ?Sized, D> PartialEq<$ty> for PathBufObserver<'ob, S, D>
-            where
-                D: Unsigned,
-                S: AsDeref<D, Target = PathBuf>,
-                PathBuf: PartialEq<$ty>,
-            {
-                fn eq(&self, other: &$ty) -> bool {
-                    self.untracked_ref().eq(other)
-                }
-            }
-        )*
-    };
-}
-
-generic_impl_partial_eq! {
-    impl PartialEq<PathBuf> for PathBuf;
-    impl PartialEq<Path> for PathBuf;
-    impl PartialEq<std::ffi::OsStr> for PathBuf;
-    impl PartialEq<std::ffi::OsString> for PathBuf;
-    impl ['a] PartialEq<&'a Path> for PathBuf;
-    impl ['a] PartialEq<&'a std::ffi::OsStr> for PathBuf;
-}
-
-impl<'ob, S1, S2, D1, D2> PartialEq<PathBufObserver<'ob, S2, D2>> for PathBufObserver<'ob, S1, D1>
-where
-    D1: Unsigned,
-    D2: Unsigned,
-    S1: AsDeref<D1, Target = PathBuf>,
-    S2: AsDeref<D2, Target = PathBuf>,
-{
-    fn eq(&self, other: &PathBufObserver<'ob, S2, D2>) -> bool {
-        self.untracked_ref().eq(other.untracked_ref())
-    }
-}
-
-impl<'ob, S, D> Eq for PathBufObserver<'ob, S, D>
-where
-    D: Unsigned,
-    S: AsDeref<D, Target = PathBuf>,
-{
-}
-
-impl<'ob, S, D> PartialOrd<PathBuf> for PathBufObserver<'ob, S, D>
-where
-    D: Unsigned,
-    S: AsDeref<D, Target = PathBuf>,
-{
-    fn partial_cmp(&self, other: &PathBuf) -> Option<std::cmp::Ordering> {
-        self.untracked_ref().partial_cmp(other)
-    }
-}
-
-impl<'ob, S1, S2, D1, D2> PartialOrd<PathBufObserver<'ob, S2, D2>> for PathBufObserver<'ob, S1, D1>
-where
-    D1: Unsigned,
-    D2: Unsigned,
-    S1: AsDeref<D1, Target = PathBuf>,
-    S2: AsDeref<D2, Target = PathBuf>,
-{
-    fn partial_cmp(&self, other: &PathBufObserver<'ob, S2, D2>) -> Option<std::cmp::Ordering> {
-        self.untracked_ref().partial_cmp(other.untracked_ref())
-    }
-}
-
-impl<'ob, S, D> Ord for PathBufObserver<'ob, S, D>
-where
-    D: Unsigned,
-    S: AsDeref<D, Target = PathBuf>,
-{
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.untracked_ref().cmp(other.untracked_ref())
     }
 }
 

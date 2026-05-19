@@ -64,7 +64,7 @@ impl<T> ShallowObserverState<IndexSet<T>> for IndexSetObserverState<T> {
 }
 
 impl<T: Serialize + Clone + 'static> ShallowSerializeObserverState<IndexSet<T>> for IndexSetObserverState<T> {
-    fn flush(&mut self, set: &mut IndexSet<T>) -> Mutations {
+    fn flush(&mut self, set: &IndexSet<T>) -> Mutations {
         let append_index = std::mem::replace(&mut self.append_index, set.len());
         let truncate_len = std::mem::replace(&mut self.truncate_len, 0);
 
