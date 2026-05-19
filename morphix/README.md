@@ -259,6 +259,11 @@ Some APIs require newer Rust versions and are gated with `#[rustversion::since(.
   - `delete` (default): Enables `Delete` mutation kind
   - `truncate` (default): Enables `Truncate` mutation kind
 
+- Truncate Length Encoding (mutually exclusive):
+  - (default): `Truncate` lengths for `str`/`Path` are byte counts
+  - `utf8`: `Truncate` lengths for `str`/`Path` are UTF-8 character counts
+  - `utf16`: `Truncate` lengths for `str`/`Path` are UTF-16 code unit counts
+
 - Adapters:
   - `json`: Includes JSON serialization support via `serde_json`
   - `yaml`: Includes YAML serialization support via `serde_yaml_ng`

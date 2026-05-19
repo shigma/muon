@@ -15,6 +15,14 @@ pub trait Unsize {
     fn len(&self) -> usize;
 
     fn range_from(&self, from: usize) -> &Self::Slice;
+
+    /// Compute the truncate unit count for the removed tail `[new_len..old_len]`.
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must point to valid memory of at least `old_len` bytes, and
+    /// `ptr[new_len..old_len]` must be a valid instance of the removed content.
+    unsafe fn removed_len(ptr: *const u8, new_len: usize, old_len: usize) -> usize;
 }
 
 pub struct UnsizeHandler<T: ?Sized> {
@@ -61,7 +69,10 @@ where
         }
         if new_len < old_len {
             #[cfg(feature = "truncate")]
-            return MutationKind::Truncate(old_len - new_len).into();
+            {
+                let truncate_units = unsafe { T::removed_len(old_addr.as_ptr().cast(), new_len, old_len) };
+                return MutationKind::Truncate(truncate_units).into();
+            }
             #[cfg(not(feature = "truncate"))]
             return Mutations::replace(value);
         }
@@ -127,5 +138,37 @@ mod test {
         *ob.tracked_mut() = &A[0..5];
         let Json(mutation) = ob.flush().unwrap();
         assert_eq!(mutation, Some(truncate!(_, 6)));
+    }
+
+    #[test]
+    fn test_str_ref_truncate_multibyte() {
+        const A: &str = "你好世界！";
+        let mut a = A;
+        let mut ob = a.__observe();
+        // Truncate to "你好" (6 bytes), removing "世界！" (3 chars)
+        *ob.tracked_mut() = &A[0..6];
+        let Json(mutation) = ob.flush().unwrap();
+        assert_eq!(mutation, Some(truncate!(_, 3)));
+    }
+
+    #[test]
+    fn test_str_ref_append_multibyte() {
+        const A: &str = "你好世界";
+        let mut a = &A[0..6]; // "你好"
+        let mut ob = a.__observe();
+        *ob.tracked_mut() = A; // "你好世界"
+        let Json(mutation) = ob.flush().unwrap();
+        assert_eq!(mutation, Some(append!(_, json!("世界"))));
+    }
+
+    #[test]
+    fn test_str_ref_replace_different_addr() {
+        const A: &str = "你好";
+        const B: &str = "世界";
+        let mut a = A;
+        let mut ob = a.__observe();
+        *ob.tracked_mut() = B;
+        let Json(mutation) = ob.flush().unwrap();
+        assert_eq!(mutation, Some(replace!(_, json!("世界"))));
     }
 }

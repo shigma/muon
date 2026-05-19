@@ -9,6 +9,7 @@ use crate::general::{Unsize, UnsizeObserver};
 use crate::helper::macros::delegate_methods;
 use crate::helper::shallow::{ShallowDelegate, ShallowMut, shallow_observer};
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Unsigned, Zero};
+use crate::impls::strings::str_truncate_len;
 use crate::impls::strings::string::StringObserverState;
 use crate::observe::{DefaultSpec, Observe, RefObserve};
 
@@ -176,11 +177,18 @@ impl Unsize for str {
     type Slice = Self;
 
     fn len(&self) -> usize {
-        self.chars().count()
+        <str>::len(self)
     }
 
     fn range_from(&self, from: usize) -> &Self::Slice {
         &self[from..]
+    }
+
+    unsafe fn removed_len(ptr: *const u8, new_len: usize, old_len: usize) -> usize {
+        let removed = unsafe {
+            std::str::from_utf8_unchecked(std::slice::from_raw_parts(ptr.add(new_len), old_len - new_len))
+        };
+        str_truncate_len(removed)
     }
 }
 

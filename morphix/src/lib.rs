@@ -7,6 +7,9 @@
 #![recursion_limit = "256"]
 #![doc = include_str!("../README.md")]
 
+#[cfg(all(feature = "utf8", feature = "utf16"))]
+compile_error!("Features `utf8` and `utf16` are mutually exclusive");
+
 #[cfg(test)]
 extern crate self as morphix;
 

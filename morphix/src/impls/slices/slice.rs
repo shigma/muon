@@ -439,6 +439,10 @@ impl<T> Unsize for [T] {
     fn range_from(&self, from: usize) -> &Self::Slice {
         &self[from..]
     }
+
+    unsafe fn removed_len(_ptr: *const u8, new_len: usize, old_len: usize) -> usize {
+        old_len - new_len
+    }
 }
 
 impl<T> RefObserve for [T] {

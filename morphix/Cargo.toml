@@ -20,6 +20,8 @@ full = ["append", "delete", "derive", "json", "truncate", "yaml"]
 indexmap = ["dep:cfg-version", "dep:indexmap"]
 json = ["dep:serde_json"]
 truncate = []
+utf16 = []
+utf8 = []
 uuid = ["dep:uuid"]
 yaml = ["dep:serde_yaml_ng"]
 
@@ -41,7 +43,7 @@ indexmap = { version = "2", features = ["serde"], optional = true }
 uuid = { version = "1", features = ["serde"], optional = true }
 
 [dev-dependencies]
-morphix = { path = ".", features = ["chrono", "full", "indexmap", "uuid"] }
+morphix = { path = ".", features = ["chrono", "full", "indexmap", "utf8", "uuid"] }
 morphix_test_utils = { path = "../morphix-test-utils" }
 serde = { version = "1.0.228", features = ["derive"] }
 

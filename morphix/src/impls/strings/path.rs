@@ -10,6 +10,7 @@ use crate::general::{DebugHandler, GeneralHandler, GeneralObserver, SerializeHan
 use crate::helper::shallow::{ShallowDelegate, shallow_observer};
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, Unsigned, Zero};
 use crate::impls::strings::os_str::OsStrObserver;
+use crate::impls::strings::str_truncate_len;
 use crate::observe::{DefaultSpec, Observe, RefObserve};
 
 shallow_observer! {
@@ -46,7 +47,7 @@ impl Invalidate<Path> for PathHandler {
         self.raw_parts.get_or_insert_with(|| {
             value
                 .to_str()
-                .map(|str| (NonNull::from(str).cast::<()>(), str.chars().count()))
+                .map(|str| (NonNull::from(str).cast::<()>(), str_truncate_len(str)))
         });
     }
 }
@@ -70,7 +71,7 @@ impl SerializeHandler for PathHandler {
             return Mutations::replace(value);
         };
         let new_addr = NonNull::from(str).cast::<()>();
-        let new_len = str.chars().count();
+        let new_len = str_truncate_len(str);
         if new_addr != old_addr {
             return Mutations::replace(value);
         }

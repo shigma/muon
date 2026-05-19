@@ -10,13 +10,14 @@ use std::string::Drain;
 use crate::helper::macros::{default_impl_ref_observe, delegate_methods};
 use crate::helper::shallow::{ShallowMut, ShallowObserverState, ShallowSerializeObserverState};
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, QuasiObserver, Succ, Unsigned, Zero};
+use crate::impls::strings::{char_truncate_len, str_truncate_len};
 use crate::impls::strings::str::StrObserver;
 use crate::observe::{DefaultSpec, Observer, SerializeObserver};
 use crate::{MutationKind, Mutations, Observe};
 
 pub struct StringObserverState {
     pub append_index: usize, // byte index
-    pub truncate_len: usize, // char count
+    pub truncate_len: usize, // feature-gated: byte/char/utf16 count
 }
 
 impl StringObserverState {
@@ -24,7 +25,7 @@ impl StringObserverState {
         if self.append_index <= index {
             return;
         }
-        let count = value[index..self.append_index].chars().count();
+        let count = str_truncate_len(&value[index..self.append_index]);
         self.truncate_len += count;
         self.append_index = index;
     }
@@ -178,7 +179,7 @@ where
         let value = (*self.inner.ptr).as_deref_mut();
         let ch = value.pop()?;
         if value.len() < state.append_index {
-            state.truncate_len += 1;
+            state.truncate_len += char_truncate_len(ch);
             state.append_index = value.len();
         }
         Some(ch)
@@ -210,7 +211,7 @@ where
                     first_removed = Some(byte_offset);
                 }
                 if first_removed.is_some() {
-                    chars_in_range += 1;
+                    chars_in_range += char_truncate_len(ch);
                 }
             }
             byte_offset += ch.len_utf8();
