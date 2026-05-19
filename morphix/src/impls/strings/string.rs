@@ -8,10 +8,10 @@ use std::slice::SliceIndex;
 use std::string::Drain;
 
 use crate::helper::macros::{default_impl_ref_observe, delegate_methods};
-use crate::helper::shallow::{ShallowMut, ObserverState, SerializeObserverState};
+use crate::helper::shallow::{ObserverState, SerializeObserverState, ShallowMut};
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, QuasiObserver, Succ, Unsigned, Zero};
-use crate::impls::strings::str::StrObserver;
 use crate::impls::strings::TruncateLen;
+use crate::impls::strings::str::StrObserver;
 use crate::observe::{DefaultSpec, Observer, SerializeObserver};
 use crate::{MutationKind, Mutations, Observe};
 

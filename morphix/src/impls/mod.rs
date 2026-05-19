@@ -17,6 +17,7 @@
 //! stable.
 
 mod atomic;
+mod bound;
 mod collections;
 mod cow;
 mod deref;
@@ -28,6 +29,7 @@ mod strings;
 mod tuple;
 mod weak;
 
+pub use bound::BoundObserver;
 pub use collections::*;
 pub use cow::CowObserver;
 pub use deref::{DerefMutObserver, DerefObserver};

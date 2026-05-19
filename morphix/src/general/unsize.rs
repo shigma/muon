@@ -141,7 +141,7 @@ mod test {
     }
 
     #[test]
-    fn test_str_ref_truncate_multibyte() {
+    fn test_str_ref_truncate_multi_byte() {
         const A: &str = "你好世界！";
         let mut a = A;
         let mut ob = a.__observe();
@@ -152,7 +152,7 @@ mod test {
     }
 
     #[test]
-    fn test_str_ref_append_multibyte() {
+    fn test_str_ref_append_multi_byte() {
         const A: &str = "你好世界";
         let mut a = &A[0..6]; // "你好"
         let mut ob = a.__observe();

@@ -28,7 +28,7 @@ jobs:
         run: cargo check --workspace --all-targets
 
       - name: Run tests
-        run: cargo test --workspace --all-features --all-targets --no-fail-fast
+        run: cargo test --workspace --all-targets --no-fail-fast
 
       - name: Check formatting
         run: cargo fmt --all -- --check

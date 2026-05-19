@@ -5,11 +5,11 @@ use std::net::IpAddr;
 
 use url::{ParseError, Url};
 
+use crate::Observe;
 use crate::helper::shallow::shallow_observer;
 use crate::helper::{AsDeref, AsDerefMut, QuasiObserver, Unsigned};
 use crate::impls::strings::string::StringObserverState;
 use crate::observe::DefaultSpec;
-use crate::Observe;
 
 shallow_observer! {
     /// Observer implementation for [`Url`].

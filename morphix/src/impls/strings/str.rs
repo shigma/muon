@@ -185,9 +185,8 @@ impl Unsize for str {
     }
 
     unsafe fn removed_len(ptr: *const u8, new_len: usize, old_len: usize) -> usize {
-        let removed = unsafe {
-            std::str::from_utf8_unchecked(std::slice::from_raw_parts(ptr.add(new_len), old_len - new_len))
-        };
+        let removed =
+            unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(ptr.add(new_len), old_len - new_len)) };
         removed.truncate_len()
     }
 }

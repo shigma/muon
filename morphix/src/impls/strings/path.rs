@@ -6,7 +6,7 @@ use std::path::Path;
 use std::ptr::NonNull;
 
 use crate::Mutations;
-use crate::helper::shallow::{ShallowDelegate, ObserverState, SerializeObserverState, shallow_observer};
+use crate::helper::shallow::{ObserverState, SerializeObserverState, ShallowDelegate, shallow_observer};
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, Unsigned, Zero};
 use crate::impls::strings::TruncateLen;
 use crate::impls::strings::os_str::OsStrObserver;

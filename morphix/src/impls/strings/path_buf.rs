@@ -7,12 +7,12 @@ use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 
+use super::TruncateLen;
 use super::os_str::OsStrObserver;
 use super::os_string::OsStringObserver;
 use super::path::PathObserver;
-use super::TruncateLen;
 use crate::helper::macros::{default_impl_ref_observe, delegate_methods};
-use crate::helper::shallow::{ShallowDelegate, ObserverState, SerializeObserverState};
+use crate::helper::shallow::{ObserverState, SerializeObserverState, ShallowDelegate};
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
 use crate::observe::{DefaultSpec, Observer, SerializeObserver};
 use crate::{MutationKind, Mutations, Observe};
@@ -448,7 +448,7 @@ mod tests {
     }
 
     #[test]
-    fn pop_multibyte() {
+    fn pop_multi_byte() {
         let mut p = PathBuf::from("/usr/日本語");
         let mut ob = p.__observe();
         ob.pop();
