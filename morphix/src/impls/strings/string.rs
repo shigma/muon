@@ -10,8 +10,8 @@ use std::string::Drain;
 use crate::helper::macros::{default_impl_ref_observe, delegate_methods};
 use crate::helper::shallow::{ShallowMut, ShallowObserverState, ShallowSerializeObserverState};
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, QuasiObserver, Succ, Unsigned, Zero};
-use crate::impls::strings::{char_truncate_len, str_truncate_len};
 use crate::impls::strings::str::StrObserver;
+use crate::impls::strings::TruncateLen;
 use crate::observe::{DefaultSpec, Observer, SerializeObserver};
 use crate::{MutationKind, Mutations, Observe};
 
@@ -21,32 +21,21 @@ pub struct StringObserverState {
 }
 
 impl StringObserverState {
-    fn mark_truncate(&mut self, value: &str, index: usize) {
+    pub fn mark_truncate(&mut self, value: &str, index: usize) {
         if self.append_index <= index {
             return;
         }
-        let count = str_truncate_len(&value[index..self.append_index]);
-        self.truncate_len += count;
+        self.truncate_len += value[index..self.append_index].truncate_len();
         self.append_index = index;
     }
 }
 
-impl Invalidate<str> for StringObserverState {
-    fn invalidate(&mut self, value: &str) {
-        self.mark_truncate(value, 0);
-    }
-}
-
-impl Invalidate<()> for StringObserverState {
-    fn invalidate(&mut self, _: &()) {
-        // Encode "everything replaced" via the (append_index == 0, truncate_len > 0) pattern
-        // that `flush` recognizes as Replace. The exact `truncate_len` value is not read on the
-        // Replace branch, so a sentinel of 1 suffices — but it must be > 0, otherwise `flush`
-        // would fall through to the Append branch and emit `Append(full_value)` instead of
-        // Replace, double-applying content on the receiver. `.max(1)` preserves any larger
-        // value left by a prior `mark_truncate`.
-        self.append_index = 0;
-        self.truncate_len = self.truncate_len.max(1);
+impl<T: ?Sized> Invalidate<T> for StringObserverState {
+    fn invalidate(&mut self, _: &T) {
+        if self.append_index > 0 {
+            self.append_index = 0;
+            self.truncate_len = self.truncate_len.max(1);
+        }
     }
 }
 
@@ -179,7 +168,7 @@ where
         let value = (*self.inner.ptr).as_deref_mut();
         let ch = value.pop()?;
         if value.len() < state.append_index {
-            state.truncate_len += char_truncate_len(ch);
+            state.truncate_len += ch.truncate_len();
             state.append_index = value.len();
         }
         Some(ch)
@@ -211,7 +200,7 @@ where
                     first_removed = Some(byte_offset);
                 }
                 if first_removed.is_some() {
-                    chars_in_range += char_truncate_len(ch);
+                    chars_in_range += ch.truncate_len();
                 }
             }
             byte_offset += ch.len_utf8();

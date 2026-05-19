@@ -22,6 +22,7 @@ json = ["dep:serde_json"]
 truncate = []
 utf16 = []
 utf8 = []
+url = ["dep:url"]
 uuid = ["dep:uuid"]
 yaml = ["dep:serde_yaml_ng"]
 
@@ -40,14 +41,16 @@ serde_yaml_ng = { version = "0.10", optional = true }
 # Third party integrations
 chrono = { version = "0.4", features = ["serde"], optional = true }
 indexmap = { version = "2", features = ["serde"], optional = true }
+url = { version = "2", features = ["serde"], optional = true }
 uuid = { version = "1", features = ["serde"], optional = true }
 
 [dev-dependencies]
-morphix = { path = ".", features = ["chrono", "full", "indexmap", "utf8", "uuid"] }
+morphix = { path = ".", features = ["chrono", "full", "indexmap", "url", "utf8", "uuid"] }
 morphix_test_utils = { path = "../morphix-test-utils" }
 serde = { version = "1.0.228", features = ["derive"] }
 
 # Third party integrations
 chrono = { version = "0.4.43" }
 indexmap = { version = "2.13.0" }
+url = { version = "2" }
 uuid = { version = "1.20.0" }

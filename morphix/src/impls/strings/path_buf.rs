@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use super::os_str::OsStrObserver;
 use super::os_string::OsStringObserver;
 use super::path::PathObserver;
-use super::str_truncate_len;
+use super::TruncateLen;
 use crate::helper::macros::{default_impl_ref_observe, delegate_methods};
 use crate::helper::shallow::{ShallowDelegate, ShallowObserverState, ShallowSerializeObserverState};
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
@@ -30,7 +30,7 @@ impl PathBufObserverState {
         let removed = &path_bytes[preserved_bytes..self.append_index];
         match std::str::from_utf8(removed) {
             Ok(s) => {
-                self.truncate_len += str_truncate_len(s);
+                self.truncate_len += s.truncate_len();
                 self.append_index = preserved_bytes;
             }
             Err(_) => {

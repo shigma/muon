@@ -10,6 +10,8 @@ mod path;
 mod path_buf;
 mod str;
 mod string;
+#[cfg(feature = "url")]
+mod url;
 
 #[cfg(any(unix, windows))]
 pub use os_str::OsStrObserver;
@@ -19,23 +21,33 @@ pub use path::PathObserver;
 pub use path_buf::PathBufObserver;
 pub use str::StrObserver;
 pub use string::StringObserver;
+#[cfg(feature = "url")]
+pub use url::UrlObserver;
 
-pub(crate) fn str_truncate_len(s: &str) -> usize {
-    if cfg!(feature = "utf8") {
-        s.chars().count()
-    } else if cfg!(feature = "utf16") {
-        s.encode_utf16().count()
-    } else {
-        s.len()
+pub(crate) trait TruncateLen {
+    fn truncate_len(&self) -> usize;
+}
+
+impl TruncateLen for str {
+    fn truncate_len(&self) -> usize {
+        if cfg!(feature = "utf8") {
+            self.chars().count()
+        } else if cfg!(feature = "utf16") {
+            self.encode_utf16().count()
+        } else {
+            self.len()
+        }
     }
 }
 
-pub(crate) fn char_truncate_len(ch: char) -> usize {
-    if cfg!(feature = "utf8") {
-        1
-    } else if cfg!(feature = "utf16") {
-        ch.len_utf16()
-    } else {
-        ch.len_utf8()
+impl TruncateLen for char {
+    fn truncate_len(&self) -> usize {
+        if cfg!(feature = "utf8") {
+            1
+        } else if cfg!(feature = "utf16") {
+            self.len_utf16()
+        } else {
+            self.len_utf8()
+        }
     }
 }

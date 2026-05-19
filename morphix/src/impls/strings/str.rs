@@ -9,7 +9,7 @@ use crate::general::{Unsize, UnsizeObserver};
 use crate::helper::macros::delegate_methods;
 use crate::helper::shallow::{ShallowDelegate, ShallowMut, shallow_observer};
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Unsigned, Zero};
-use crate::impls::strings::str_truncate_len;
+use crate::impls::strings::TruncateLen;
 use crate::impls::strings::string::StringObserverState;
 use crate::observe::{DefaultSpec, Observe, RefObserve};
 
@@ -188,7 +188,7 @@ impl Unsize for str {
         let removed = unsafe {
             std::str::from_utf8_unchecked(std::slice::from_raw_parts(ptr.add(new_len), old_len - new_len))
         };
-        str_truncate_len(removed)
+        removed.truncate_len()
     }
 }
 
