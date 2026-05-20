@@ -201,9 +201,9 @@ where
         if index >= len {
             return None;
         }
-        let bb = self.state.back_boundary(len);
+        let back_boundary = self.state.back_boundary(len);
         let slice = deque.make_contiguous();
-        unsafe { relocate(&self.state.inner, &mut slice[..bb]) };
+        unsafe { relocate(&self.state.inner, &mut slice[..back_boundary]) };
         let observers = unsafe { &mut *self.state.inner.get() };
         observers.get_mut(index)
     }
@@ -222,9 +222,9 @@ where
         if index >= len {
             return None;
         }
-        let bb = self.state.back_boundary(len);
+        let back_boundary = self.state.back_boundary(len);
         let slice = deque.make_contiguous();
-        unsafe { relocate(&self.state.inner, &mut slice[..bb]) };
+        unsafe { relocate(&self.state.inner, &mut slice[..back_boundary]) };
         self.state.inner.get_mut().get_mut(index)
     }
 
@@ -254,14 +254,14 @@ where
     /// See [`VecDeque::truncate`].
     pub fn truncate(&mut self, len: usize) {
         let old_len = (*self).untracked_ref().len();
-        let bb = self.state.back_boundary(old_len);
-        if len >= bb {
+        let back_boundary = self.state.back_boundary(old_len);
+        if len >= back_boundary {
             // Only truncating appended
-            self.state.back_append_len -= bb.min(old_len) + len - old_len;
+            self.state.back_append_len -= back_boundary.min(old_len) + len - old_len;
             self.untracked_mut().truncate(len);
         } else if len > self.state.front_prepend_len {
             // Truncating into existing from back
-            self.state.back_truncate_len += bb - len;
+            self.state.back_truncate_len += back_boundary - len;
             self.state.back_append_len = 0;
             let inner = self.state.inner.get_mut();
             if inner.len() > len {
@@ -294,9 +294,9 @@ where
     {
         let deque = (*self.ptr).as_deref_mut();
         let len = deque.len();
-        let bb = self.state.back_boundary(len);
+        let back_boundary = self.state.back_boundary(len);
         let slice = deque.make_contiguous();
-        unsafe { relocate(&self.state.inner, &mut slice[..bb]) };
+        unsafe { relocate(&self.state.inner, &mut slice[..back_boundary]) };
         self.state.inner.get_mut().range_mut(range)
     }
 
@@ -306,7 +306,7 @@ where
         R: RangeBounds<usize>,
     {
         let old_len = (*self).untracked_ref().len();
-        let bb = self.state.back_boundary(old_len);
+        let back_boundary = self.state.back_boundary(old_len);
         let start = match range.start_bound() {
             Bound::Included(&n) => n,
             Bound::Excluded(&n) => n + 1,
@@ -317,7 +317,7 @@ where
             Bound::Excluded(&n) => n,
             Bound::Unbounded => old_len,
         };
-        if start >= bb {
+        if start >= back_boundary {
             self.state.back_append_len -= end - start;
             return self.untracked_mut().drain(range);
         }
@@ -381,10 +381,10 @@ where
         } else {
             self.state.back_truncate_len += 1;
             let len = (*self).untracked_ref().len();
-            let bb = self.state.back_boundary(len);
+            let back_boundary = self.state.back_boundary(len);
             let inner = self.state.inner.get_mut();
-            if inner.len() > bb {
-                inner.truncate(bb);
+            if inner.len() > back_boundary {
+                inner.truncate(back_boundary);
             }
         }
         Some(value)
@@ -460,11 +460,11 @@ where
     /// See [`VecDeque::swap_remove_back`].
     pub fn swap_remove_back(&mut self, index: usize) -> Option<O::Head> {
         let len = (*self).untracked_ref().len();
-        let bb = self.state.back_boundary(len);
+        let back_boundary = self.state.back_boundary(len);
         let value = self.untracked_mut().swap_remove_back(index)?;
-        if index >= bb {
+        if index >= back_boundary {
             self.state.back_append_len -= 1;
-        } else if index + 1 == bb && self.state.back_append_len == 0 {
+        } else if index + 1 == back_boundary && self.state.back_append_len == 0 {
             self.state.back_truncate_len += 1;
             let inner = self.state.inner.get_mut();
             if inner.len() > index {
@@ -479,8 +479,8 @@ where
     /// See [`VecDeque::insert`].
     pub fn insert(&mut self, index: usize, value: O::Head) {
         let len = (*self).untracked_ref().len();
-        let bb = self.state.back_boundary(len);
-        if index >= bb {
+        let back_boundary = self.state.back_boundary(len);
+        if index >= back_boundary {
             self.state.back_append_len += 1;
             self.untracked_mut().insert(index, value);
         } else if index <= self.state.front_prepend_len {
@@ -508,11 +508,11 @@ where
     /// See [`VecDeque::remove`].
     pub fn remove(&mut self, index: usize) -> Option<O::Head> {
         let len = (*self).untracked_ref().len();
-        let bb = self.state.back_boundary(len);
+        let back_boundary = self.state.back_boundary(len);
         let value = self.untracked_mut().remove(index)?;
-        if index >= bb {
+        if index >= back_boundary {
             self.state.back_append_len -= 1;
-        } else if index + 1 == bb {
+        } else if index + 1 == back_boundary {
             self.state.back_truncate_len += 1;
             self.state.back_append_len = 0;
             let inner = self.state.inner.get_mut();
@@ -528,12 +528,12 @@ where
     /// See [`VecDeque::split_off`].
     pub fn split_off(&mut self, at: usize) -> VecDeque<O::Head> {
         let len = (*self).untracked_ref().len();
-        let bb = self.state.back_boundary(len);
+        let back_boundary = self.state.back_boundary(len);
         let split = self.untracked_mut().split_off(at);
-        if at >= bb {
+        if at >= back_boundary {
             self.state.back_append_len -= len - at;
         } else if at > self.state.front_prepend_len {
-            self.state.back_truncate_len += bb - at;
+            self.state.back_truncate_len += back_boundary - at;
             self.state.back_append_len = 0;
             let inner = self.state.inner.get_mut();
             if inner.len() > at {
@@ -574,12 +574,12 @@ where
     /// See [`VecDeque::resize_with`].
     pub fn resize_with(&mut self, new_len: usize, generator: impl FnMut() -> O::Head) {
         let old_len = (*self).untracked_ref().len();
-        let bb = self.state.back_boundary(old_len);
+        let back_boundary = self.state.back_boundary(old_len);
         self.untracked_mut().resize_with(new_len, generator);
-        if new_len >= bb {
+        if new_len >= back_boundary {
             self.state.back_append_len += new_len - old_len;
         } else if new_len > self.state.front_prepend_len {
-            self.state.back_truncate_len += bb - new_len;
+            self.state.back_truncate_len += back_boundary - new_len;
             self.state.back_append_len = 0;
             let inner = self.state.inner.get_mut();
             if inner.len() > new_len {
@@ -594,9 +594,9 @@ where
     pub fn make_contiguous(&mut self) -> &mut [O] {
         let deque = (*self.ptr).as_deref_mut();
         let len = deque.len();
-        let bb = self.state.back_boundary(len);
+        let back_boundary = self.state.back_boundary(len);
         let deque_slice = deque.make_contiguous();
-        unsafe { relocate(&self.state.inner, &mut deque_slice[..bb]) };
+        unsafe { relocate(&self.state.inner, &mut deque_slice[..back_boundary]) };
         self.state.inner.get_mut().make_contiguous()
     }
 
@@ -629,12 +629,12 @@ where
     /// See [`VecDeque::resize`].
     pub fn resize(&mut self, new_len: usize, value: O::Head) {
         let old_len = (*self).untracked_ref().len();
-        let bb = self.state.back_boundary(old_len);
+        let back_boundary = self.state.back_boundary(old_len);
         self.untracked_mut().resize(new_len, value);
-        if new_len >= bb {
+        if new_len >= back_boundary {
             self.state.back_append_len += new_len - old_len;
         } else if new_len > self.state.front_prepend_len {
-            self.state.back_truncate_len += bb - new_len;
+            self.state.back_truncate_len += back_boundary - new_len;
             self.state.back_append_len = 0;
             let inner = self.state.inner.get_mut();
             if inner.len() > new_len {
@@ -1357,8 +1357,6 @@ mod tests {
         let Json(mutation) = ob.flush().unwrap();
         assert_eq!(mutation, Some(replace!(_, json!(["a", "XY", "b", "c"]))));
     }
-
-    // --- New tests for front-side fine-grained tracking ---
 
     #[test]
     fn push_front_pop_front_cancel() {

@@ -271,4 +271,5 @@ Some APIs require newer Rust versions and are gated with `#[rustversion::since(.
 - Third party integrations:
   - `chrono`
   - `indexmap`
+  - `url`
   - `uuid`
