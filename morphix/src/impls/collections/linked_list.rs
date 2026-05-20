@@ -230,11 +230,13 @@ where
 
 /// Iterator returned by [`LinkedListObserver::iter_mut`].
 pub struct IterMut<'a, O: Observer<InnerDepth = Zero, Head: Sized>> {
-    front: std::vec::IntoIter<*mut O>,
-    back: std::vec::IntoIter<*mut O>,
+    front_source: LinkedList<O>,
+    back_source: LinkedList<O>,
     gap: std::collections::linked_list::IterMut<'a, O::Head>,
-    front_inner: *mut LinkedList<O>,
-    back_inner: *mut LinkedList<O>,
+    front_dest: *mut LinkedList<O>,
+    back_dest: *mut LinkedList<O>,
+    front_skip: usize,
+    back_skip: usize,
     _marker: PhantomData<&'a mut O>,
 }
 
@@ -242,46 +244,89 @@ impl<'a, O: Observer<InnerDepth = Zero, Head: Sized>> Iterator for IterMut<'a, O
     type Item = &'a mut O;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(ptr) = self.front.next() {
-            return Some(unsafe { &mut *ptr });
+        if let Some(ob) = self.front_source.pop_front() {
+            let dest = unsafe { &mut *self.front_dest };
+            dest.push_back(ob);
+            return dest.back_mut();
         }
-        if let Some(value) = self.gap.next() {
+        if self.front_skip > 0 {
+            let front_dest = unsafe { &mut *self.front_dest };
+            for ob in front_dest.iter_mut() {
+                let value = self.gap.next().unwrap();
+                unsafe { Observer::relocate(ob, value) };
+            }
+            for ob in self.front_source.iter_mut() {
+                let value = self.gap.next().unwrap();
+                unsafe { Observer::relocate(ob, value) };
+            }
+            self.front_skip = 0;
+        }
+        if self.gap.len() > self.back_skip {
+            let value = self.gap.next().unwrap();
             let ob = O::observe(value);
-            let front_inner = unsafe { &mut *self.front_inner };
-            front_inner.push_back(ob);
-            return front_inner.back_mut();
+            let dest = unsafe { &mut *self.front_dest };
+            dest.push_back(ob);
+            return dest.back_mut();
         }
-        if let Some(ptr) = self.back.next() {
-            return Some(unsafe { &mut *ptr });
+        if let Some(ob) = self.back_source.pop_back() {
+            let dest = unsafe { &mut *self.front_dest };
+            dest.push_back(ob);
+            return dest.back_mut();
         }
         None
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let len = self.front.len() + self.gap.len() + self.back.len();
+        let len = self.front_source.len() + self.gap.len() - self.front_skip - self.back_skip + self.back_source.len();
         (len, Some(len))
     }
 }
 
 impl<'a, O: Observer<InnerDepth = Zero, Head: Sized>> DoubleEndedIterator for IterMut<'a, O> {
     fn next_back(&mut self) -> Option<Self::Item> {
-        if let Some(ptr) = self.back.next_back() {
-            return Some(unsafe { &mut *ptr });
+        if let Some(ob) = self.back_source.pop_front() {
+            let dest = unsafe { &mut *self.back_dest };
+            dest.push_back(ob);
+            return dest.back_mut();
         }
-        if let Some(value) = self.gap.next_back() {
+        if self.back_skip > 0 {
+            let back_dest = unsafe { &mut *self.back_dest };
+            for ob in back_dest.iter_mut() {
+                let value = self.gap.next_back().unwrap();
+                unsafe { Observer::relocate(ob, value) };
+            }
+            for ob in self.back_source.iter_mut() {
+                let value = self.gap.next_back().unwrap();
+                unsafe { Observer::relocate(ob, value) };
+            }
+            self.back_skip = 0;
+        }
+        if self.gap.len() > self.front_skip {
+            let value = self.gap.next_back().unwrap();
             let ob = O::observe(value);
-            let back_inner = unsafe { &mut *self.back_inner };
-            back_inner.push_back(ob);
-            return back_inner.back_mut();
+            let dest = unsafe { &mut *self.back_dest };
+            dest.push_back(ob);
+            return dest.back_mut();
         }
-        if let Some(ptr) = self.front.next_back() {
-            return Some(unsafe { &mut *ptr });
+        if let Some(ob) = self.front_source.pop_back() {
+            let dest = unsafe { &mut *self.back_dest };
+            dest.push_back(ob);
+            return dest.back_mut();
         }
         None
     }
 }
 
 impl<'a, O: Observer<InnerDepth = Zero, Head: Sized>> ExactSizeIterator for IterMut<'a, O> {}
+
+impl<'a, O: Observer<InnerDepth = Zero, Head: Sized>> Drop for IterMut<'a, O> {
+    fn drop(&mut self) {
+        let front_dest = unsafe { &mut *self.front_dest };
+        front_dest.append(&mut self.front_source);
+        let back_dest = unsafe { &mut *self.back_dest };
+        back_dest.append(&mut self.back_source);
+    }
+}
 
 impl<'ob, O, S: ?Sized, D> LinkedListObserver<'ob, O, S, D>
 where
@@ -320,18 +365,6 @@ where
         }
     }
 
-    fn ensure_appended_coverage(
-        side: &mut LinkedListObserverSideState<O>,
-        mut iter: impl Iterator<Item = *mut O::Head>,
-    ) {
-        let inner = side.inner.get_mut();
-        let covered = inner.len().min(side.append_len);
-        let needed = side.append_len - covered;
-        for ptr in iter.by_ref().skip(covered).take(needed) {
-            inner.push_back(O::observe(unsafe { &mut *ptr }));
-        }
-    }
-
     /// See [`LinkedList::append`].
     pub fn append(&mut self, other: &mut LinkedList<O::Head>) {
         self.state.back.append_len += other.len();
@@ -341,49 +374,19 @@ where
     /// See [`LinkedList::iter_mut`].
     pub fn iter_mut(&mut self) -> IterMut<'_, O> {
         let list = (*self.ptr).as_deref_mut();
-        let len = list.len();
-
-        // Ensure all appended elements have observers in their respective ends
-        // For front: iterate from front, skip already-covered, create missing
-        let front_ptrs: Vec<*mut O::Head> = list
-            .iter_mut()
-            .take(self.state.front.append_len)
-            .map(|v| v as *mut _)
-            .collect();
-        Self::ensure_appended_coverage(&mut self.state.front, front_ptrs.into_iter());
-        // For back: iterate from back, skip already-covered, create missing
-        let back_ptrs: Vec<*mut O::Head> = list
-            .iter_mut()
-            .rev()
-            .take(self.state.back.append_len)
-            .map(|v| v as *mut _)
-            .collect();
-        Self::ensure_appended_coverage(&mut self.state.back, back_ptrs.into_iter());
-
-        let front_inner = self.state.front.inner.get_mut();
-        let back_inner = self.state.back.inner.get_mut();
-        let front_len = front_inner.len();
-        let back_len = back_inner.len();
-
-        let front_obs_ptrs: Vec<*mut O> = front_inner.iter_mut().map(|o| o as *mut O).collect();
-        let back_obs_ptrs: Vec<*mut O> = back_inner.iter_mut().map(|o| o as *mut O).collect();
-
-        let mut gap = list.iter_mut();
-        let gap_len = len - front_len - back_len;
-        for _ in 0..front_len {
-            gap.next();
-        }
-        for _ in 0..back_len {
-            gap.next_back();
-        }
-        debug_assert_eq!(gap.len(), gap_len);
-
+        let front_source = std::mem::take(self.state.front.inner.get_mut());
+        let back_source = std::mem::take(self.state.back.inner.get_mut());
+        let front_skip = front_source.len();
+        let back_skip = back_source.len();
+        let gap = list.iter_mut();
         IterMut {
-            front: front_obs_ptrs.into_iter(),
-            back: back_obs_ptrs.into_iter(),
+            front_source,
+            back_source,
             gap,
-            front_inner: self.state.front.inner.get(),
-            back_inner: self.state.back.inner.get(),
+            front_dest: self.state.front.inner.get(),
+            back_dest: self.state.back.inner.get(),
+            front_skip,
+            back_skip,
             _marker: PhantomData,
         }
     }
@@ -495,9 +498,9 @@ where
     /// See [`LinkedList::split_off`].
     pub fn split_off(&mut self, at: usize) -> LinkedList<O::Head> {
         let len = (*self).untracked_ref().len();
-        let bb = len - self.state.back.append_len;
+        let back_boundary = len - self.state.back.append_len;
         let split = self.untracked_mut().split_off(at);
-        if at >= bb {
+        if at >= back_boundary {
             // Splitting within the appended region
             let removed = len - at;
             self.state.back.append_len -= removed;
@@ -507,7 +510,7 @@ where
             }
         } else if at > self.state.front.append_len {
             // Splitting within the existing region
-            self.state.back.truncate_len += bb - at;
+            self.state.back.truncate_len += back_boundary - at;
             self.state.back.append_len = 0;
             self.state.back.inner.get_mut().clear();
             let front_inner = self.state.front.inner.get_mut();
@@ -988,5 +991,157 @@ mod tests {
         ob.back_mut().unwrap().push_str("?");
         let Json(mutation) = ob.flush().unwrap();
         assert_eq!(mutation, Some(append!(_, json!(["a!", "b?"]))));
+    }
+
+    #[test]
+    fn iter_mut_with_existing_front_observer() {
+        let mut list = LinkedList::from(["a".to_string(), "b".to_string(), "c".to_string()]);
+        let mut ob = list.__observe();
+        ob.front_mut().unwrap();
+        let count = ob.iter_mut().count();
+        assert_eq!(count, 3);
+    }
+
+    #[test]
+    fn iter_mut_with_existing_back_observer() {
+        let mut list = LinkedList::from(["a".to_string(), "b".to_string(), "c".to_string()]);
+        let mut ob = list.__observe();
+        ob.back_mut().unwrap();
+        let count = ob.iter_mut().rev().count();
+        assert_eq!(count, 3);
+    }
+
+    #[test]
+    fn iter_mut_front_skip_then_gap() {
+        let mut list = LinkedList::from(["a".to_string(), "b".to_string(), "c".to_string()]);
+        let mut ob = list.__observe();
+        ob.front_mut().unwrap();
+        for inner in ob.iter_mut() {
+            inner.push_str("!");
+        }
+        let Json(mutation) = ob.flush().unwrap();
+        assert_eq!(
+            mutation,
+            Some(batch!(
+                _,
+                append!(-1, json!("!")),
+                append!(-2, json!("!")),
+                append!(-3, json!("!"))
+            ))
+        );
+    }
+
+    #[test]
+    fn iter_mut_forward_with_back_observer() {
+        let mut list = LinkedList::from(["a".to_string(), "b".to_string(), "c".to_string()]);
+        let mut ob = list.__observe();
+        ob.back_mut().unwrap().push_str("!");
+        for inner in ob.iter_mut() {
+            inner.push_str("?");
+        }
+        let Json(mutation) = ob.flush().unwrap();
+        assert_eq!(
+            mutation,
+            Some(batch!(
+                _,
+                append!(-1, json!("!?")),
+                append!(-2, json!("?")),
+                append!(-3, json!("?"))
+            ))
+        );
+    }
+
+    #[test]
+    fn iter_mut_backward_with_front_observer() {
+        let mut list = LinkedList::from(["a".to_string(), "b".to_string(), "c".to_string()]);
+        let mut ob = list.__observe();
+        ob.front_mut().unwrap().push_str("!");
+        for inner in ob.iter_mut().rev() {
+            inner.push_str("?");
+        }
+        let Json(mutation) = ob.flush().unwrap();
+        assert_eq!(
+            mutation,
+            Some(batch!(
+                _,
+                append!(-1, json!("?")),
+                append!(-2, json!("?")),
+                append!(-3, json!("!?"))
+            ))
+        );
+    }
+
+    #[test]
+    fn iter_mut_both_sides_have_observers() {
+        let mut list = LinkedList::from(["a".to_string(), "b".to_string(), "c".to_string(), "d".to_string()]);
+        let mut ob = list.__observe();
+        ob.front_mut().unwrap().push_str("1");
+        ob.back_mut().unwrap().push_str("4");
+        // Forward: front_source yields "a1", gap yields "b" and "c", back observer "d4" via Drop
+        for inner in ob.iter_mut() {
+            inner.push_str("!");
+        }
+        let Json(mutation) = ob.flush().unwrap();
+        assert_eq!(
+            mutation,
+            Some(batch!(
+                _,
+                append!(-1, json!("4!")),
+                append!(-2, json!("!")),
+                append!(-3, json!("!")),
+                append!(-4, json!("1!"))
+            ))
+        );
+    }
+
+    #[test]
+    fn iter_mut_drop_restores_observers() {
+        let mut list = LinkedList::from(["a".to_string(), "b".to_string(), "c".to_string()]);
+        let mut ob = list.__observe();
+        ob.front_mut().unwrap().push_str("!");
+        ob.back_mut().unwrap().push_str("?");
+        let mut iter = ob.iter_mut();
+        iter.next();
+        drop(iter);
+        let Json(mutation) = ob.flush().unwrap();
+        assert_eq!(
+            mutation,
+            Some(batch!(_, append!(-1, json!("?")), append!(-3, json!("!"))))
+        );
+    }
+
+    #[test]
+    fn iter_mut_mixed_directions() {
+        let mut list = LinkedList::from([
+            "a".to_string(),
+            "b".to_string(),
+            "c".to_string(),
+            "d".to_string(),
+            "e".to_string(),
+        ]);
+        let mut ob = list.__observe();
+        ob.front_mut().unwrap();
+        ob.back_mut().unwrap();
+        // front_source=[obs_a], back_source=[obs_e], gap covers [a,b,c,d,e]
+        let mut iter = ob.iter_mut();
+        iter.next().unwrap().push_str("1"); // obs_a from front_source
+        iter.next_back().unwrap().push_str("5"); // obs_e from back_source
+        iter.next().unwrap().push_str("2"); // gap.next() = b
+        iter.next_back().unwrap().push_str("4"); // gap.next_back() = d
+        iter.next().unwrap().push_str("3"); // gap.next() = c
+        assert!(iter.next().is_none());
+        drop(iter);
+        let Json(mutation) = ob.flush().unwrap();
+        assert_eq!(
+            mutation,
+            Some(batch!(
+                _,
+                append!(-1, json!("5")),
+                append!(-2, json!("4")),
+                append!(-3, json!("3")),
+                append!(-4, json!("2")),
+                append!(-5, json!("1"))
+            ))
+        );
     }
 }
