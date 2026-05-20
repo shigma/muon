@@ -9,7 +9,6 @@ pub mod hash_set;
 pub mod index_map;
 #[cfg(feature = "indexmap")]
 pub mod index_set;
-pub mod linked_list;
 
 pub use binary_heap::BinaryHeapObserver;
 pub use btree_map::BTreeMapObserver;
@@ -20,4 +19,3 @@ pub use hash_set::HashSetObserver;
 pub use index_map::IndexMapObserver;
 #[cfg(feature = "indexmap")]
 pub use index_set::IndexSetObserver;
-pub use linked_list::LinkedListObserver;

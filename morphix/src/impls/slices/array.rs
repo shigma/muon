@@ -1,3 +1,5 @@
+//! Observer implementation for arrays `[T; N]`.
+
 use std::fmt::Debug;
 use std::ops::{Deref, DerefMut, Index, IndexMut};
 use std::slice::SliceIndex;
