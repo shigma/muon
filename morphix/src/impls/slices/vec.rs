@@ -5,8 +5,7 @@ use std::collections::TryReserveError;
 use std::fmt::Debug;
 use std::io::Write;
 use std::mem::MaybeUninit;
-use std::ops::{Bound, Deref, DerefMut, Index, IndexMut, RangeBounds};
-use std::slice::SliceIndex;
+use std::ops::{Bound, Deref, DerefMut, Index, IndexMut, Range, RangeBounds};
 use std::vec::{Drain, ExtractIf, Splice};
 
 use serde::Serialize;
@@ -15,8 +14,61 @@ use crate::general::Snapshot;
 use crate::helper::macros::{default_impl_ref_observe, delegate_methods};
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
 use crate::impls::slice::{SliceObserver, SliceObserverState, SliceSerializeObserverState};
+use crate::impls::slices::helper::{RangeSet, SliceIndexImpl};
 use crate::observe::{DefaultSpec, Observer, SerializeObserver};
 use crate::{MutationKind, Mutations, Observe, PathSegment};
+
+/// Lazily-initialized element observer storage backed by `MaybeUninit`.
+///
+/// Only indices tracked by `initialized` contain valid observers. The `data` vector
+/// is always sized to match the observed slice length, with unaccessed slots left
+/// as `MaybeUninit::uninit()`.
+struct LazyVec<O> {
+    data: Vec<MaybeUninit<O>>,
+    initialized: RangeSet,
+}
+
+impl<O> LazyVec<O> {
+    fn new() -> Self {
+        Self {
+            data: Vec::new(),
+            initialized: RangeSet::new(),
+        }
+    }
+
+    fn clear(&mut self) {
+        for range in self.initialized.iter() {
+            for i in range.clone() {
+                unsafe { self.data[i].assume_init_drop() };
+            }
+        }
+        self.initialized.clear();
+        self.data.clear();
+    }
+
+    fn truncate(&mut self, new_len: usize) {
+        if new_len >= self.data.len() {
+            return;
+        }
+        for range in self.initialized.overlapping(&(new_len..self.data.len())) {
+            for i in range.start.max(new_len)..range.end {
+                unsafe { self.data[i].assume_init_drop() };
+            }
+        }
+        self.initialized.remove(new_len..self.data.len());
+        self.data.truncate(new_len);
+    }
+}
+
+impl<O> Drop for LazyVec<O> {
+    fn drop(&mut self) {
+        for range in self.initialized.iter() {
+            for i in range.clone() {
+                unsafe { self.data[i].assume_init_drop() };
+            }
+        }
+    }
+}
 
 /// Observer state for dynamically-sized slices ([`Vec<T>`], [`Box<[T]>`](Box)), tracking
 /// [`Append`](MutationKind::Append) and [`Truncate`](MutationKind::Truncate) boundaries.
@@ -40,15 +92,17 @@ pub struct VecObserverState<O> {
     /// Lazily-initialized element observer storage.
     ///
     /// Unlike map observers which use [`Box<O>`] for pointer stability across rehashing /
-    /// node-splits, we store observers inline in a [`Vec<O>`]. This is sound because
-    /// [`relocate`](SliceObserverState::relocate) always resizes to `values.len()` (the full
-    /// observed slice length), not just `end`. Since `values.len()` can only change through `&mut
-    /// self` operations ([`push`](Vec::push), [`pop`](Vec::pop), etc.), it stays constant for the
+    /// node-splits, we store observers inline in a [`Vec<MaybeUninit<O>>`]. The `data` vector
+    /// is always sized to match the observed slice length (resized during [`relocate`]),
+    /// and `initialized` tracks which slots contain valid observers.
+    ///
+    /// Since the slice length can only change through `&mut self` operations
+    /// ([`push`](Vec::push), [`pop`](Vec::pop), etc.), it stays constant for the
     /// entire duration of any `&self` borrow. Therefore, the first
-    /// [`relocate`](SliceObserverState::relocate) call sizes the [`Vec`] to its final length,
+    /// [`relocate`](SliceObserverState::relocate) call sizes `data` to its final length,
     /// and subsequent calls within the same `&self` borrow lifetime never trigger reallocation,
     /// keeping all previously returned references valid.
-    inner: UnsafeCell<Vec<O>>,
+    inner: UnsafeCell<LazyVec<O>>,
 }
 
 impl<O> VecObserverState<O> {
@@ -58,6 +112,7 @@ impl<O> VecObserverState<O> {
         }
         self.truncate_len += self.append_index - index;
         self.append_index = index;
+        self.inner.get_mut().truncate(index);
     }
 
     fn mark_replace(&mut self) {
@@ -75,6 +130,38 @@ where
     }
 }
 
+impl<O> VecObserverState<O>
+where
+    O: Observer<InnerDepth = Zero, Head: Sized>,
+{
+    fn relocate(&self, range: Range<usize>, slice: &mut [O::Head]) {
+        let inner = unsafe { &mut *self.inner.get() };
+        // Ensure data is sized to match the slice
+        if inner.data.len() < slice.len() {
+            inner.data.resize_with(slice.len(), MaybeUninit::uninit);
+        }
+        if inner.data.len() > slice.len() {
+            inner.truncate(slice.len());
+        }
+        if range.is_empty() {
+            return;
+        }
+        // Initialize uninitialized slots within the range
+        for gap in inner.initialized.gaps(&range) {
+            for i in gap {
+                inner.data[i] = MaybeUninit::new(O::observe(&mut slice[i]));
+            }
+        }
+        // Relocate already-initialized slots within the range
+        for existing in inner.initialized.overlapping(&range) {
+            for i in existing.clone() {
+                unsafe { Observer::relocate(inner.data[i].assume_init_mut(), &mut slice[i]) }
+            }
+        }
+        inner.initialized.insert(range);
+    }
+}
+
 impl<O> SliceObserverState for VecObserverState<O>
 where
     O: Observer<InnerDepth = Zero, Head: Sized>,
@@ -82,34 +169,28 @@ where
     type Target = [O::Head];
     type Item = O;
 
-    fn as_slice(&self) -> &[Self::Item] {
-        unsafe { &*self.inner.get() }
-    }
-
-    fn as_mut_slice(&mut self) -> &mut [Self::Item] {
-        self.inner.get_mut()
-    }
-
     fn observe(slice: &mut Self::Target) -> Self {
         Self {
             truncate_len: 0,
             append_index: slice.as_ref().len(),
-            inner: UnsafeCell::new(Vec::new()),
+            inner: UnsafeCell::new(LazyVec::new()),
         }
     }
 
-    unsafe fn relocate(&self, slice: &mut Self::Target) {
-        let inner = unsafe { &mut *self.inner.get() };
-        if inner.len() < slice.len() {
-            inner.reserve(slice.len() - inner.len());
-            for value in slice[inner.len()..].iter_mut() {
-                inner.push(O::observe(value));
-            }
-        }
-        inner.truncate(slice.len());
-        for (ob, value) in inner.iter_mut().zip(slice.iter_mut()) {
-            unsafe { Observer::relocate(ob, value) }
-        }
+    fn force_index<I: SliceIndexImpl>(&self, index: I, slice: &mut Self::Target) -> &I::Output<O> {
+        let range = index.to_range(slice.as_ref().len());
+        self.relocate(range, slice);
+        let inner = unsafe { &*self.inner.get() };
+        let output = index.index(&inner.data);
+        unsafe { std::mem::transmute_copy(&output) }
+    }
+
+    fn force_index_mut<I: SliceIndexImpl>(&mut self, index: I, slice: &mut Self::Target) -> &mut I::Output<O> {
+        let range = index.to_range(slice.as_ref().len());
+        self.relocate(range, slice);
+        let inner = self.inner.get_mut();
+        let output = index.index_mut(&mut inner.data);
+        unsafe { std::mem::transmute_copy(&output) }
     }
 }
 
@@ -122,13 +203,11 @@ where
 {
     type Target = [O::Head];
     fn flush(&mut self, ptr: &mut Pointer<S>) -> Mutations {
-        // `relocate` must precede `Mutations::append`: `relocate` takes `&mut slice` (Unique
+        // `force_index_mut` must precede `Mutations::append`: it takes `&mut slice` (Unique
         // function-entry retag over the full slice), which would invalidate a `SerializeRef`'s
         // SRO tag if the append mutation were created first.
         let slice = (**ptr).as_deref_mut();
-        // Passing `..self.append_index` drops stale inner observers beyond `append_index`
-        // (elements popped since last flush) via `relocate`'s internal truncate.
-        unsafe { self.relocate(&mut slice[..self.append_index]) }
+        let _ = self.force_index_mut(0..self.append_index, slice);
 
         let append_index = core::mem::replace(&mut self.append_index, slice.len());
         let truncate_len = core::mem::replace(&mut self.truncate_len, 0);
@@ -150,11 +229,13 @@ where
             mutations.extend(Mutations::append(&slice[append_index..]));
         }
 
+        let inner = self.inner.get_mut();
         let mut is_replace = true;
-        for (index, ob) in self.inner.get_mut().iter_mut().enumerate().rev() {
+        for i in (0..append_index).rev() {
+            let ob = unsafe { inner.data[i].assume_init_mut() };
             let mutations_i = unsafe { SerializeObserver::flush(ob) };
             is_replace &= mutations_i.is_replace();
-            mutations.insert(PathSegment::Negative(slice.len() - index), mutations_i);
+            mutations.insert(PathSegment::Negative(slice.len() - i), mutations_i);
         }
         if is_replace && !mutations.is_empty() {
             return Mutations::replace(slice);
@@ -602,9 +683,9 @@ where
     D: Unsigned,
     S: AsDerefMut<D, Target = Vec<T>>,
     O: Observer<InnerDepth = Zero, Head = T>,
-    I: SliceIndex<[O]>,
+    I: SliceIndexImpl,
 {
-    type Output = I::Output;
+    type Output = I::Output<O>;
 
     fn index(&self, index: I) -> &Self::Output {
         &self.inner[index]
@@ -616,7 +697,7 @@ where
     D: Unsigned,
     S: AsDerefMut<D, Target = Vec<T>>,
     O: Observer<InnerDepth = Zero, Head = T>,
-    I: SliceIndex<[O]>,
+    I: SliceIndexImpl,
 {
     fn index_mut(&mut self, index: I) -> &mut Self::Output {
         &mut self.inner[index]
@@ -659,6 +740,20 @@ mod tests {
     use crate::adapter::Json;
     use crate::helper::QuasiObserver;
     use crate::observe::{ObserveExt, SerializeObserverExt};
+
+    // Known issue: overlapping Index calls with live references cause UB because the
+    // second call's `Pointer::as_mut` retags the observed memory, invalidating provenance
+    // held by observers returned from the first call. Fixing this requires Pointer to
+    // support provenance refresh through shared access.
+    // #[test]
+    // fn overlapping_index_aliasing() {
+    //     let mut vec: Vec<i32> = vec![1, 2, 3];
+    //     let mut ob = vec.__observe();
+    //     let a = &ob[0];
+    //     let b = &ob[0];
+    //     assert_eq!(*a, 1);
+    //     assert_eq!(*b, 1);
+    // }
 
     #[test]
     fn no_change_returns_none() {

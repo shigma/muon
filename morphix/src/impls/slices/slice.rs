@@ -12,7 +12,7 @@ use std::slice::{
 use crate::general::{Unsize, UnsizeObserver};
 use crate::helper::macros::delegate_methods;
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
-use crate::impls::slices::helper::GetDisjointMutIndexImpl;
+use crate::impls::slices::helper::{GetDisjointMutIndexImpl, SliceIndexImpl};
 use crate::impls::vec::VecObserverState;
 use crate::observe::{DefaultSpec, Observer, RefObserve, RefObserver, SerializeObserver};
 use crate::{Mutations, Observe};
@@ -24,29 +24,18 @@ use crate::{Mutations, Observe};
 pub trait SliceObserverState: Invalidate<Self::Target> + Sized {
     /// The slice-like type being observed.
     type Target: AsRef<[<Self::Item as QuasiObserver>::Head]> + ?Sized;
+
     /// The element [`Observer`] type.
     type Item: Observer<InnerDepth = Zero, Head: Sized>;
-
-    /// Returns a shared slice of element observers.
-    fn as_slice(&self) -> &[Self::Item];
-
-    /// Returns a mutable slice of element observers.
-    fn as_mut_slice(&mut self) -> &mut [Self::Item];
 
     /// Creates an [`Observer`] collection for the given slice.
     fn observe(slice: &mut Self::Target) -> Self;
 
-    /// Ensures element observers exist for all elements and updates their pointers.
-    ///
-    /// Creates observers for any new elements via [`Observer::observe`] and calls
-    /// [`Observer::relocate`] on existing observers to update their pointers.
-    ///
-    /// ## Safety
-    ///
-    /// The caller must ensure that no references obtained from [`as_slice`](Self::as_slice) are
-    /// alive when this method is called, as the implementation may create mutable references to
-    /// the same storage through interior mutability.
-    unsafe fn relocate(&self, slice: &mut Self::Target);
+    /// Ensures the observer(s) at `index` are initialized and returns a shared reference.
+    fn force_index<I: SliceIndexImpl>(&self, index: I, slice: &mut Self::Target) -> &I::Output<Self::Item>;
+
+    /// Ensures the observer(s) at `index` are initialized and returns a mutable reference.
+    fn force_index_mut<I: SliceIndexImpl>(&mut self, index: I, slice: &mut Self::Target) -> &mut I::Output<Self::Item>;
 }
 
 /// Shared-reference counterpart to [`SliceObserverState`] for element [`RefObserver`] management.
@@ -181,8 +170,7 @@ where
 {
     pub(crate) fn force_mut(&mut self) -> &mut [V::Item] {
         let slice = (*self.ptr).as_deref_mut();
-        unsafe { self.state.relocate(slice) };
-        self.state.as_mut_slice()
+        self.state.force_index_mut(.., slice)
     }
 
     fn nonempty_mut(&mut self) -> &mut [T] {
@@ -393,13 +381,13 @@ where
     D: Unsigned,
     S: AsDerefMut<D, Target = V::Target>,
     V::Item: Observer<InnerDepth = Zero, Head = T>,
-    I: SliceIndex<[V::Item]>,
+    I: SliceIndexImpl,
 {
-    type Output = I::Output;
+    type Output = I::Output<V::Item>;
 
     fn index(&self, index: I) -> &Self::Output {
-        unsafe { self.state.relocate(Pointer::as_mut(&self.ptr).as_deref_mut()) };
-        self.state.as_slice().index(index)
+        let slice = unsafe { Pointer::as_mut(&self.ptr).as_deref_mut() };
+        self.state.force_index(index, slice)
     }
 }
 
@@ -410,11 +398,11 @@ where
     S: AsDerefMut<D, Target = V::Target>,
     S::Target: AsMut<[T]>,
     V::Item: Observer<InnerDepth = Zero, Head = T>,
-    I: SliceIndex<[V::Item]>,
+    I: SliceIndexImpl,
 {
     fn index_mut(&mut self, index: I) -> &mut Self::Output {
-        unsafe { self.state.relocate((*self.ptr).as_deref_mut()) };
-        self.state.as_mut_slice().index_mut(index)
+        let slice = (*self.ptr).as_deref_mut();
+        self.state.force_index_mut(index, slice)
     }
 }
 

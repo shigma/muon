@@ -2,13 +2,13 @@
 
 use std::fmt::Debug;
 use std::ops::{Deref, DerefMut, Index, IndexMut};
-use std::slice::SliceIndex;
 
 use serde::Serialize;
 
 use crate::general::Snapshot;
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
 use crate::impls::slice::{SliceObserver, SliceObserverState, SliceRefObserverState, SliceSerializeObserverState};
+use crate::impls::slices::helper::SliceIndexImpl;
 use crate::observe::{DefaultSpec, Observer, RefObserve, RefObserver, SerializeObserver};
 use crate::{Mutations, Observe};
 
@@ -40,20 +40,16 @@ where
     type Target = [O::Head; N];
     type Item = O;
 
-    fn as_slice(&self) -> &[O] {
-        self
-    }
-
-    fn as_mut_slice(&mut self) -> &mut [O] {
-        self
-    }
-
     fn observe(slice: &mut Self::Target) -> Self {
         slice.each_mut().map(O::observe)
     }
 
-    unsafe fn relocate(&self, _slice: &mut Self::Target) {
-        // No need to re-initialize fixed-size array.
+    fn force_index<I: SliceIndexImpl>(&self, index: I, _slice: &mut Self::Target) -> &I::Output<O> {
+        index.index(self.as_slice())
+    }
+
+    fn force_index_mut<I: SliceIndexImpl>(&mut self, index: I, _slice: &mut Self::Target) -> &mut I::Output<O> {
+        index.index_mut(self.as_mut_slice())
     }
 }
 
@@ -295,9 +291,9 @@ where
     D: Unsigned,
     S: AsDerefMut<D, Target = [T; N]>,
     O: Observer<InnerDepth = Zero, Head = T>,
-    I: SliceIndex<[O]>,
+    I: SliceIndexImpl,
 {
-    type Output = I::Output;
+    type Output = I::Output<O>;
 
     fn index(&self, index: I) -> &Self::Output {
         &self.inner[index]
@@ -309,7 +305,7 @@ where
     D: Unsigned,
     S: AsDerefMut<D, Target = [T; N]>,
     O: Observer<InnerDepth = Zero, Head = T>,
-    I: SliceIndex<[O]>,
+    I: SliceIndexImpl,
 {
     fn index_mut(&mut self, index: I) -> &mut Self::Output {
         &mut self.inner[index]
