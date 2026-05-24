@@ -14,15 +14,15 @@ use crate::general::Snapshot;
 use crate::helper::macros::{default_impl_ref_observe, delegate_methods};
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
 use crate::impls::slice::{SliceObserver, SliceObserverState, SliceSerializeObserverState};
-use crate::impls::slices::helper::{RangeSet, SliceIndexImpl};
+use crate::impls::slices::helper::SliceIndexImpl;
+use crate::impls::slices::range_set::RangeSet;
 use crate::observe::{DefaultSpec, Observer, SerializeObserver};
 use crate::{MutationKind, Mutations, Observe, PathSegment};
 
 /// Lazily-initialized element observer storage backed by `MaybeUninit`.
 ///
-/// Only indices tracked by `initialized` contain valid observers. The `data` vector
-/// is always sized to match the observed slice length, with unaccessed slots left
-/// as `MaybeUninit::uninit()`.
+/// Only indices tracked by `initialized` contain valid observers. The `data` vector is always sized
+/// to match the observed slice length, with unaccessed slots left as `MaybeUninit::uninit()`.
 struct LazyVec<O> {
     data: Vec<MaybeUninit<O>>,
     initialized: RangeSet,
@@ -146,13 +146,11 @@ where
         if range.is_empty() {
             return;
         }
-        // Initialize uninitialized slots within the range
         for gap in inner.initialized.gaps(&range) {
             for i in gap {
                 inner.data[i] = MaybeUninit::new(O::observe(&mut slice[i]));
             }
         }
-        // Relocate already-initialized slots within the range
         for existing in inner.initialized.overlapping(&range) {
             for i in existing.clone() {
                 unsafe { Observer::relocate(inner.data[i].assume_init_mut(), &mut slice[i]) }
@@ -202,13 +200,9 @@ where
     O::Head: Serialize + Sized + 'static,
 {
     type Target = [O::Head];
-    fn flush(&mut self, ptr: &mut Pointer<S>) -> Mutations {
-        // `force_index_mut` must precede `Mutations::append`: it takes `&mut slice` (Unique
-        // function-entry retag over the full slice), which would invalidate a `SerializeRef`'s
-        // SRO tag if the append mutation were created first.
-        let slice = (**ptr).as_deref_mut();
-        let _ = self.force_index_mut(0..self.append_index, slice);
 
+    fn flush(&mut self, ptr: &mut Pointer<S>) -> Mutations {
+        let slice = (**ptr).as_deref_mut();
         let append_index = core::mem::replace(&mut self.append_index, slice.len());
         let truncate_len = core::mem::replace(&mut self.truncate_len, 0);
 
@@ -219,6 +213,17 @@ where
             return Mutations::replace(slice);
         }
 
+        // Phase 1: Relocate initialized observers (all &mut slice[i] happens here).
+        let inner = self.inner.get_mut();
+        let has_gaps = inner.initialized.gaps(&(0..append_index)).next().is_some();
+        for range in inner.initialized.overlapping(&(0..append_index)) {
+            let end = range.end.min(append_index);
+            for (i, head) in slice.iter_mut().enumerate().skip(range.start).take(end - range.start) {
+                unsafe { Observer::relocate(inner.data[i].assume_init_mut(), head) };
+            }
+        }
+
+        // Phase 2: Build Truncate/Append (safe to create SerializeRef now).
         let mut mutations = Mutations::new();
         #[cfg(feature = "truncate")]
         if truncate_len > 0 {
@@ -229,13 +234,15 @@ where
             mutations.extend(Mutations::append(&slice[append_index..]));
         }
 
-        let inner = self.inner.get_mut();
-        let mut is_replace = true;
-        for i in (0..append_index).rev() {
-            let ob = unsafe { inner.data[i].assume_init_mut() };
-            let mutations_i = unsafe { SerializeObserver::flush(ob) };
-            is_replace &= mutations_i.is_replace();
-            mutations.insert(PathSegment::Negative(slice.len() - i), mutations_i);
+        // Phase 3: Flush initialized observers in reverse, appending child mutations.
+        let mut is_replace = !has_gaps;
+        for range in inner.initialized.overlapping(&(0..append_index)).rev() {
+            let end = range.end.min(append_index);
+            for i in (range.start..end).rev() {
+                let mutations_i = unsafe { SerializeObserver::flush(inner.data[i].assume_init_mut()) };
+                is_replace &= mutations_i.is_replace();
+                mutations.insert(PathSegment::Negative(slice.len() - i), mutations_i);
+            }
         }
         if is_replace && !mutations.is_empty() {
             return Mutations::replace(slice);
@@ -846,6 +853,19 @@ mod tests {
         // All existing elements (only ob[0]) report Replace, and there are appended elements.
         // The optimization collapses everything into a single whole-vec Replace.
         assert_eq!(mutation, Some(replace!(_, json!([11, 12]))));
+    }
+
+    #[test]
+    fn non_replace_child_with_append() {
+        let mut vec = vec!["hello".to_string(), "world".to_string()];
+        let mut ob = vec.__observe();
+        ob[0].push_str("!");
+        ob.push("new".to_string());
+        let Json(mutation) = ob.flush().unwrap();
+        assert_eq!(
+            mutation,
+            Some(batch!(_, append!(_, json!(["new"])), append!(-3, json!("!"))))
+        );
     }
 
     #[test]

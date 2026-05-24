@@ -1,6 +1,7 @@
 pub mod array;
 mod helper;
 pub mod linked_list;
+mod range_set;
 pub mod slice;
 pub mod vec;
 pub mod vec_deque;
