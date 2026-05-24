@@ -1,9 +1,9 @@
 [workspace]
 resolver = "2"
 members = [
-  "morphix",
-  "morphix-derive",
-  "morphix-test-utils",
+  "muon",
+  "muon-derive",
+  "muon-test-utils",
 ]
 
 [workspace.dependencies]

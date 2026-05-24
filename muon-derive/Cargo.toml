@@ -1,0 +1,39 @@
+[package]
+name = "muon-derive"
+version = "0.18.3"
+edition = "2024"
+license = "MIT"
+authors = [
+    "Shigma <shigma10826@gmail.com>",
+]
+description = "Derive macros for muon"
+repository = "https://github.com/shigma/muon"
+documentation = "https://docs.rs/muon-derive"
+
+[features]
+default = ["delete"]
+delete = []
+
+[lib]
+proc-macro = true
+
+[[test]]
+name = "fixtures"
+path = "fixtures/mod.rs"
+
+[dependencies]
+heck = "0.5.0"
+proc-macro2 = "1.0.101"
+quote = "1.0.41"
+syn = { version = "2.0.106", features = ["full", "visit", "visit-mut"] }
+
+[dev-dependencies]
+macro_expand = "0.2.0"
+muon = { path = "../muon", features = ["full"] }
+muon_test_utils = { path = "../muon-test-utils" }
+pretty_assertions = "1.4.1"
+prettyplease = "0.2.37"
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+trybuild = "1.0.112"
+walkdir = "2.5.0"

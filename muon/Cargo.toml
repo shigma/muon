@@ -1,0 +1,56 @@
+[package]
+name = "muon"
+version = "0.19.6"
+edition = "2024"
+license = "MIT"
+authors = [
+    "Shigma <shigma10826@gmail.com>",
+]
+description = "Observing and serializing mutations"
+repository = "https://github.com/shigma/muon"
+documentation = "https://docs.rs/muon"
+
+[features]
+append = []
+chrono = ["dep:chrono"]
+default = ["append", "delete", "derive", "truncate"]
+delete = ["muon-derive/delete"]
+derive = ["dep:muon-derive"]
+full = ["append", "delete", "derive", "json", "truncate", "yaml"]
+indexmap = ["dep:cfg-version", "dep:indexmap"]
+json = ["dep:serde_json"]
+truncate = []
+utf16 = []
+utf8 = []
+url = ["dep:url"]
+uuid = ["dep:uuid"]
+yaml = ["dep:serde_yaml_ng"]
+
+[package.metadata.docs.rs]
+features = ["full"]
+
+[dependencies]
+cfg-version = { version = "1.0.0", optional = true }
+erased-serde = { version = "0.4.10" }
+muon-derive = { version = "0.18.3", path = "../muon-derive", optional = true, default-features = false }
+rustversion = { version = "1.0.22" }
+serde = { version = "1" }
+serde_json = { version = "1", optional = true }
+serde_yaml_ng = { version = "0.10", optional = true }
+
+# Third party integrations
+chrono = { version = "0.4", features = ["serde"], optional = true }
+indexmap = { version = "2", features = ["serde"], optional = true }
+url = { version = "2", features = ["serde"], optional = true }
+uuid = { version = "1", features = ["serde"], optional = true }
+
+[dev-dependencies]
+muon = { path = ".", features = ["chrono", "full", "indexmap", "url", "utf8", "uuid"] }
+muon_test_utils = { path = "../muon-test-utils" }
+serde = { version = "1.0.228", features = ["derive"] }
+
+# Third party integrations
+chrono = { version = "0.4.43" }
+indexmap = { version = "2.13.0" }
+url = { version = "2.5.8" }
+uuid = { version = "1.20.0" }

@@ -345,16 +345,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "78ca9ab1a0babb1e7d5695e3530886289c18cf2f87ec19a575a0abdce112e3a3"
 
 [[package]]
-name = "morphix"
+name = "muon"
 version = "0.19.6"
 dependencies = [
  "cfg-version",
  "chrono",
  "erased-serde",
  "indexmap",
- "morphix",
- "morphix_derive",
- "morphix_test_utils",
+ "muon",
+ "muon-derive",
+ "muon_test_utils",
  "rustversion",
  "serde",
  "serde_json",
@@ -364,13 +364,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "morphix_derive"
+name = "muon-derive"
 version = "0.18.3"
 dependencies = [
  "heck",
  "macro_expand",
- "morphix",
- "morphix_test_utils",
+ "muon",
+ "muon_test_utils",
  "pretty_assertions",
  "prettyplease",
  "proc-macro2",
@@ -383,7 +383,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "morphix_test_utils"
+name = "muon_test_utils"
 version = "0.0.0"
 
 [[package]]
