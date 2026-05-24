@@ -3,86 +3,89 @@ use std::cmp::Ordering;
 use std::collections::BTreeSet;
 use std::ops::{Bound, Range};
 
+pub(crate) trait RangeIndex: Ord + Copy {}
+
+impl RangeIndex for usize {}
+impl RangeIndex for isize {}
+
 #[derive(Clone)]
 #[repr(transparent)]
-struct StartWrapper(Range<usize>);
+struct StartWrapper<T>(Range<T>);
 
-impl PartialEq for StartWrapper {
+impl<T: Ord> PartialEq for StartWrapper<T> {
     fn eq(&self, other: &Self) -> bool {
         self.0.start == other.0.start
     }
 }
 
-impl Eq for StartWrapper {}
+impl<T: Ord> Eq for StartWrapper<T> {}
 
-impl Ord for StartWrapper {
+impl<T: Ord> Ord for StartWrapper<T> {
     fn cmp(&self, other: &Self) -> Ordering {
         self.0.start.cmp(&other.0.start)
     }
 }
 
-impl PartialOrd for StartWrapper {
+impl<T: Ord> PartialOrd for StartWrapper<T> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Borrow<EndWrapper> for StartWrapper {
-    fn borrow(&self) -> &EndWrapper {
-        // SAFETY: both types are #[repr(transparent)] over Range<usize>
-        unsafe { &*(self as *const StartWrapper as *const EndWrapper) }
+impl<T: Ord> Borrow<EndWrapper<T>> for StartWrapper<T> {
+    fn borrow(&self) -> &EndWrapper<T> {
+        // SAFETY: both types are #[repr(transparent)] over Range<T>
+        unsafe { &*(self as *const StartWrapper<T> as *const EndWrapper<T>) }
     }
 }
 
 #[repr(transparent)]
-struct EndWrapper(Range<usize>);
+struct EndWrapper<T>(Range<T>);
 
-impl PartialEq for EndWrapper {
+impl<T: Ord> PartialEq for EndWrapper<T> {
     fn eq(&self, other: &Self) -> bool {
         self.0.end == other.0.end
     }
 }
 
-impl Eq for EndWrapper {}
+impl<T: Ord> Eq for EndWrapper<T> {}
 
-impl Ord for EndWrapper {
+impl<T: Ord> Ord for EndWrapper<T> {
     fn cmp(&self, other: &Self) -> Ordering {
         self.0.end.cmp(&other.0.end)
     }
 }
 
-impl PartialOrd for EndWrapper {
+impl<T: Ord> PartialOrd for EndWrapper<T> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-/// A sorted, non-overlapping set of `Range<usize>` intervals with automatic merging.
+/// A sorted, non-overlapping set of `Range<T>` intervals with automatic merging.
 ///
 /// Backed by a `BTreeSet` with a `Borrow`-based trick that enables O(log n) lookups
 /// by either range start or range end.
-pub(crate) struct RangeSet {
-    set: BTreeSet<StartWrapper>,
+pub(crate) struct RangeSet<T: RangeIndex = usize> {
+    set: BTreeSet<StartWrapper<T>>,
 }
 
-impl RangeSet {
+impl<T: RangeIndex> RangeSet<T> {
     pub fn new() -> Self {
         Self { set: BTreeSet::new() }
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &Range<usize>> {
+    pub fn iter(&self) -> impl Iterator<Item = &Range<T>> {
         self.set.iter().map(|e| &e.0)
     }
 
-    pub fn insert(&mut self, range: Range<usize>) {
-        if range.is_empty() {
+    pub fn insert(&mut self, range: Range<T>) {
+        if range.start >= range.end {
             return;
         }
         let mut start = range.start;
         let mut end = range.end;
 
-        // Step 1: Check left neighbor (last entry with start <= range.start).
-        // It touches [start, end) if its end >= start.
         if let Some(left) = self
             .set
             .range(..=StartWrapper(start..start))
@@ -95,8 +98,6 @@ impl RangeSet {
             self.set.remove(&left);
         }
 
-        // Step 2: Consume all entries with start > (merged) start and start <= (merged) end.
-        // These all touch since their start <= end and their end > start.
         while let Some(right) = self
             .set
             .range((
@@ -113,12 +114,11 @@ impl RangeSet {
         self.set.insert(StartWrapper(start..end));
     }
 
-    pub fn remove(&mut self, range: Range<usize>) {
-        if range.is_empty() {
+    pub fn remove(&mut self, range: Range<T>) {
+        if range.start >= range.end {
             return;
         }
 
-        // Handle left overlapping entry (last entry with start <= range.start whose end > range.start).
         if let Some(left) = self
             .set
             .range(..=StartWrapper(range.start..range.start))
@@ -136,7 +136,6 @@ impl RangeSet {
             }
         }
 
-        // Handle entries fully or partially within (range.start, range.end).
         while let Some(entry) = self
             .set
             .range((
@@ -155,40 +154,36 @@ impl RangeSet {
     }
 
     /// Returns a double-ended iterator over stored ranges that overlap the query range.
-    ///
-    /// Uses the `Borrow<EndWrapper>` trick for O(log n) initial seek (skipping entries
-    /// with end <= query.start). The forward direction stops at start >= query.end;
-    /// the backward direction skips trailing entries with start >= query.end.
-    pub fn overlapping<'a>(&'a self, range: &Range<usize>) -> Overlapping<'a> {
+    pub fn overlapping<'a>(&'a self, range: &Range<T>) -> Overlapping<'a, T> {
         let sliver = EndWrapper(range.start..range.start);
         Overlapping {
             iter: self
                 .set
-                .range::<EndWrapper, _>((Bound::Excluded(&sliver), Bound::Unbounded)),
+                .range::<EndWrapper<T>, _>((Bound::Excluded(&sliver), Bound::Unbounded)),
             query_end: range.end,
         }
     }
 
     /// Returns an iterator over gaps (uncovered sub-ranges) within the query range.
-    pub fn gaps<'a>(&'a self, range: &Range<usize>) -> Gaps<'a> {
+    pub fn gaps<'a>(&'a self, range: &Range<T>) -> Gaps<'a, T> {
         let sliver = EndWrapper(range.start..range.start);
         Gaps {
             iter: self
                 .set
-                .range::<EndWrapper, _>((Bound::Excluded(&sliver), Bound::Unbounded)),
+                .range::<EndWrapper<T>, _>((Bound::Excluded(&sliver), Bound::Unbounded)),
             cursor: range.start,
             query_end: range.end,
         }
     }
 }
 
-pub(crate) struct Overlapping<'a> {
-    iter: std::collections::btree_set::Range<'a, StartWrapper>,
-    query_end: usize,
+pub(crate) struct Overlapping<'a, T: RangeIndex = usize> {
+    iter: std::collections::btree_set::Range<'a, StartWrapper<T>>,
+    query_end: T,
 }
 
-impl<'a> Iterator for Overlapping<'a> {
-    type Item = &'a Range<usize>;
+impl<'a, T: RangeIndex> Iterator for Overlapping<'a, T> {
+    type Item = &'a Range<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let entry = self.iter.next()?;
@@ -196,7 +191,7 @@ impl<'a> Iterator for Overlapping<'a> {
     }
 }
 
-impl DoubleEndedIterator for Overlapping<'_> {
+impl<T: RangeIndex> DoubleEndedIterator for Overlapping<'_, T> {
     fn next_back(&mut self) -> Option<Self::Item> {
         loop {
             let entry = self.iter.next_back()?;
@@ -207,14 +202,14 @@ impl DoubleEndedIterator for Overlapping<'_> {
     }
 }
 
-pub(crate) struct Gaps<'a> {
-    iter: std::collections::btree_set::Range<'a, StartWrapper>,
-    cursor: usize,
-    query_end: usize,
+pub(crate) struct Gaps<'a, T: RangeIndex = usize> {
+    iter: std::collections::btree_set::Range<'a, StartWrapper<T>>,
+    cursor: T,
+    query_end: T,
 }
 
-impl Iterator for Gaps<'_> {
-    type Item = Range<usize>;
+impl<T: RangeIndex> Iterator for Gaps<'_, T> {
+    type Item = Range<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {

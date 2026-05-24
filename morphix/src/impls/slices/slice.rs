@@ -138,6 +138,8 @@ where
     }
 }
 
+
+
 /// Observer implementation for slices `[T]`.
 pub struct SliceObserver<V, S: ?Sized, D = Zero> {
     pub(super) ptr: Pointer<S>,

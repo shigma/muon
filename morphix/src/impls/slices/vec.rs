@@ -142,11 +142,9 @@ where
 
         // Phase 2: Build Truncate/Append (safe to create SerializeRef now).
         let mut mutations = Mutations::new();
-        #[cfg(feature = "truncate")]
         if truncate_len > 0 {
             mutations.extend(MutationKind::Truncate(truncate_len));
         }
-        #[cfg(feature = "append")]
         if slice.len() > append_index {
             mutations.extend(Mutations::append(&slice[append_index..]));
         }

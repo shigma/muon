@@ -6,21 +6,143 @@ use std::collections::{TryReserveError, VecDeque};
 use std::fmt::Debug;
 use std::io::{Read, Write};
 use std::marker::PhantomData;
-use std::ops::{Bound, Deref, DerefMut, Index, IndexMut, RangeBounds};
+use std::mem::MaybeUninit;
+use std::ops::{Bound, Deref, DerefMut, Index, IndexMut, Range, RangeBounds};
 
 use serde::Serialize;
 
 use crate::helper::macros::{default_impl_ref_observe, delegate_methods};
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
+use crate::impls::slices::range_set::RangeSet;
 use crate::observe::{DefaultSpec, Observer, SerializeObserver};
 use crate::{MutationKind, Mutations, Observe, PathSegment};
+
+/// Lazily-initialized element observer storage for [`VecDeque`]-backed observers.
+///
+/// Uses a [`VecDeque<MaybeUninit<O>>`] for O(1) front/back operations, and a
+/// [`RangeSet<isize>`] with an offset for O(1) index translation on front shifts.
+struct LazyVecDeque<O> {
+    data: VecDeque<MaybeUninit<O>>,
+    initialized: RangeSet<isize>,
+    offset: isize,
+}
+
+impl<O> LazyVecDeque<O> {
+    fn new() -> Self {
+        Self {
+            data: VecDeque::new(),
+            initialized: RangeSet::new(),
+            offset: 0,
+        }
+    }
+
+    fn key(&self, index: usize) -> isize {
+        index as isize + self.offset
+    }
+
+    fn key_range(&self, range: Range<usize>) -> Range<isize> {
+        self.key(range.start)..self.key(range.end)
+    }
+
+    fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    fn truncate(&mut self, new_len: usize) {
+        if new_len >= self.data.len() {
+            return;
+        }
+        let remove_range = self.key_range(new_len..self.data.len());
+        for range in self.initialized.overlapping(&remove_range) {
+            let start = (range.start - self.offset) as usize;
+            let end = (range.end - self.offset) as usize;
+            for i in start.max(new_len)..end {
+                unsafe { self.data[i].assume_init_drop() };
+            }
+        }
+        self.initialized.remove(remove_range);
+        self.data.truncate(new_len);
+    }
+
+    fn pop_front(&mut self) {
+        if self.data.is_empty() {
+            return;
+        }
+        let key = self.key(0);
+        if self.initialized.overlapping(&(key..key + 1)).next().is_some() {
+            unsafe { self.data[0].assume_init_drop() };
+            self.initialized.remove(key..key + 1);
+        }
+        self.data.pop_front();
+        self.offset += 1;
+    }
+
+    fn push_front_uninit(&mut self) {
+        self.offset -= 1;
+        self.data.push_front(MaybeUninit::uninit());
+    }
+}
+
+impl<O> Drop for LazyVecDeque<O> {
+    fn drop(&mut self) {
+        for range in self.initialized.iter() {
+            let start = (range.start - self.offset) as usize;
+            let end = (range.end - self.offset) as usize;
+            for i in start..end {
+                unsafe { self.data[i].assume_init_drop() };
+            }
+        }
+    }
+}
+
+impl<O> LazyVecDeque<O>
+where
+    O: Observer<InnerDepth = Zero, Head: Sized>,
+{
+    #[expect(clippy::needless_range_loop)]
+    fn relocate(&mut self, range: Range<usize>, slice: &mut [O::Head]) {
+        while self.data.len() < slice.len() {
+            self.data.push_back(MaybeUninit::uninit());
+        }
+        if self.data.len() > slice.len() {
+            self.truncate(slice.len());
+        }
+        if range.is_empty() {
+            return;
+        }
+        let key_range = self.key_range(range.clone());
+        for gap in self.initialized.gaps(&key_range) {
+            let start = (gap.start - self.offset) as usize;
+            let end = (gap.end - self.offset) as usize;
+            for i in start..end {
+                self.data[i] = MaybeUninit::new(O::observe(&mut slice[i]));
+            }
+        }
+        for existing in self.initialized.overlapping(&key_range) {
+            let start = (existing.start - self.offset) as usize;
+            let end = (existing.end - self.offset) as usize;
+            for i in start..end {
+                unsafe { Observer::relocate(self.data[i].assume_init_mut(), &mut slice[i]) }
+            }
+        }
+        self.initialized.insert(key_range);
+    }
+
+    fn get_mut(&mut self, index: usize) -> Option<&mut MaybeUninit<O>> {
+        self.data.get_mut(index)
+    }
+
+    fn make_contiguous(&mut self) -> &mut [MaybeUninit<O>] {
+        self.data.make_contiguous()
+    }
+}
 
 struct VecDequeObserverState<O> {
     front_prepend_len: usize,
     front_truncate_len: usize,
     back_append_len: usize,
     back_truncate_len: usize,
-    inner: UnsafeCell<VecDeque<O>>,
+    inner: UnsafeCell<LazyVecDeque<O>>,
 }
 
 impl<O> VecDequeObserverState<O> {
@@ -29,7 +151,7 @@ impl<O> VecDequeObserverState<O> {
     }
 
     fn mark_replace(&mut self, len: usize) {
-        self.inner.get_mut().clear();
+        self.inner.get_mut().truncate(0);
         self.front_prepend_len = len;
         self.front_truncate_len = len;
         self.back_append_len = 0;
@@ -98,7 +220,7 @@ where
                 front_truncate_len: 0,
                 back_append_len: 0,
                 back_truncate_len: 0,
-                inner: UnsafeCell::new(VecDeque::new()),
+                inner: UnsafeCell::new(LazyVecDeque::new()),
             },
             ptr: Pointer::new(head),
             phantom: PhantomData,
@@ -133,58 +255,54 @@ where
             || cfg!(not(feature = "truncate")) && back_truncate_len > 0
             || cfg!(not(feature = "append")) && back_append_len > 0
         {
-            this.state.inner.get_mut().clear();
+            this.state.inner.get_mut().truncate(0);
             return Mutations::replace(slice);
         }
 
-        // Relocate must precede Mutations::append/replace: relocate takes `&mut slice` (Unique retag),
-        // which would invalidate a SerializeRef's SRO tag if created first. Passing `..back_boundary` drops
-        // stale inner observers for appended elements via `relocate`'s internal truncate.
-        unsafe { relocate(&this.state.inner, &mut slice[..back_boundary]) };
+        // Phase 1: Relocate initialized observers in [prepend_len..back_boundary].
+        let inner = this.state.inner.get_mut();
+        let prepend_len = front_prepend_len.min(back_boundary);
+        let existing_range = prepend_len..back_boundary;
+        inner.relocate(existing_range.clone(), &mut slice[..back_boundary]);
 
+        // Phase 2: Build Truncate/Append.
         let mut mutations = Mutations::new();
-        #[cfg(feature = "truncate")]
         if back_truncate_len > 0 {
             mutations.extend(MutationKind::Truncate(back_truncate_len));
         }
-        #[cfg(feature = "append")]
         if back_append_len > 0 {
             mutations.extend(Mutations::append(&slice[back_boundary..]));
         }
 
-        let prepend_len = front_prepend_len.min(back_boundary);
-        let inner = this.state.inner.get_mut().make_contiguous();
-        let mut is_replace = true;
-        for (index, ob) in inner[prepend_len..].iter_mut().enumerate().rev() {
-            let mutations_i = unsafe { SerializeObserver::flush(ob) };
-            is_replace &= mutations_i.is_replace();
-            mutations.insert(PathSegment::Negative(len - prepend_len - index), mutations_i);
+        // Phase 3: Flush initialized observers in [prepend_len..back_boundary].
+        let key_range = inner.key_range(existing_range.clone());
+        let has_gaps = inner.initialized.gaps(&key_range).next().is_some();
+        let offset = inner.offset;
+        let contiguous: *mut [MaybeUninit<O>] = inner.make_contiguous();
+        let mut is_replace = !has_gaps;
+        for range in inner.initialized.overlapping(&key_range).rev() {
+            let start = ((range.start - offset) as usize).max(prepend_len);
+            let end = ((range.end - offset) as usize).min(back_boundary);
+            for i in (start..end).rev() {
+                let ob = unsafe { (*contiguous)[i].assume_init_mut() };
+                let mutations_i = unsafe { SerializeObserver::flush(ob) };
+                is_replace &= mutations_i.is_replace();
+                mutations.insert(PathSegment::Negative(len - i), mutations_i);
+            }
         }
         if is_replace && (prepend_len > 0 || !mutations.is_empty()) {
+            inner.truncate(0);
             return Mutations::replace(slice);
         }
+
+        // Phase 4: Emit Replace for prepended elements.
         for i in (0..prepend_len).rev() {
             mutations.insert(PathSegment::Negative(len - i), Mutations::replace(&slice[i]));
         }
-        mutations
-    }
-}
 
-/// Ensures element observers exist for all elements and updates their pointers.
-unsafe fn relocate<O>(inner: &UnsafeCell<VecDeque<O>>, deque_slice: &mut [O::Head])
-where
-    O: Observer<InnerDepth = Zero, Head: Sized>,
-{
-    let observers = unsafe { &mut *inner.get() };
-    if observers.len() < deque_slice.len() {
-        for value in deque_slice[observers.len()..].iter_mut() {
-            observers.push_back(O::observe(value));
-        }
-    }
-    observers.truncate(deque_slice.len());
-    let ob_contiguous = observers.make_contiguous();
-    for (ob, value) in ob_contiguous.iter_mut().zip(deque_slice.iter_mut()) {
-        unsafe { Observer::relocate(ob, value) };
+        // Reset inner state for next cycle.
+        inner.truncate(0);
+        mutations
     }
 }
 
@@ -202,17 +320,24 @@ where
             return None;
         }
         let back_boundary = self.state.back_boundary(len);
+        if index >= back_boundary {
+            return None;
+        }
         let slice = deque.make_contiguous();
-        unsafe { relocate(&self.state.inner, &mut slice[..back_boundary]) };
-        let observers = unsafe { &mut *self.state.inner.get() };
-        observers.get_mut(index)
+        let inner = unsafe { &mut *self.state.inner.get() };
+        inner.relocate(index..index + 1, &mut slice[..back_boundary]);
+        Some(unsafe { inner.get_mut(index).unwrap().assume_init_mut() })
     }
 
-    fn force_all(&mut self) -> &mut VecDeque<O> {
+    fn force_all(&mut self) -> &mut [O] {
         let deque = (*self.ptr).as_deref_mut();
+        let len = deque.len();
+        let back_boundary = self.state.back_boundary(len);
         let slice = deque.make_contiguous();
-        unsafe { relocate(&self.state.inner, slice) };
-        self.state.inner.get_mut()
+        let inner = self.state.inner.get_mut();
+        inner.relocate(0..back_boundary, &mut slice[..back_boundary]);
+        let contiguous = inner.make_contiguous();
+        unsafe { std::mem::transmute(&mut contiguous[..back_boundary]) }
     }
 
     /// See [`VecDeque::get_mut`].
@@ -223,19 +348,22 @@ where
             return None;
         }
         let back_boundary = self.state.back_boundary(len);
+        if index >= back_boundary {
+            return None;
+        }
         let slice = deque.make_contiguous();
-        unsafe { relocate(&self.state.inner, &mut slice[..back_boundary]) };
-        self.state.inner.get_mut().get_mut(index)
+        let inner = self.state.inner.get_mut();
+        inner.relocate(index..index + 1, &mut slice[..back_boundary]);
+        Some(unsafe { inner.get_mut(index).unwrap().assume_init_mut() })
     }
 
     /// See [`VecDeque::swap`].
     pub fn swap(&mut self, i: usize, j: usize) {
         if i != j {
-            let observers = self.state.inner.get_mut();
-            if let Some(ob) = observers.get_mut(i) {
+            if let Some(ob) = self.get_mut(i) {
                 QuasiObserver::invalidate(ob);
             }
-            if let Some(ob) = observers.get_mut(j) {
+            if let Some(ob) = self.get_mut(j) {
                 QuasiObserver::invalidate(ob);
             }
             self.untracked_mut().swap(i, j);
@@ -263,10 +391,7 @@ where
             // Truncating into existing from back
             self.state.back_truncate_len += back_boundary - len;
             self.state.back_append_len = 0;
-            let inner = self.state.inner.get_mut();
-            if inner.len() > len {
-                inner.truncate(len);
-            }
+            self.state.inner.get_mut().truncate(len);
             self.untracked_mut().truncate(len);
         } else {
             // All existing gone
@@ -283,8 +408,8 @@ where
 
     /// See [`VecDeque::as_mut_slices`].
     pub fn as_mut_slices(&mut self) -> (&mut [O], &mut [O]) {
-        self.force_all();
-        self.state.inner.get_mut().as_mut_slices()
+        let observers = self.force_all();
+        (observers, &mut [])
     }
 
     /// See [`VecDeque::range_mut`].
@@ -295,9 +420,23 @@ where
         let deque = (*self.ptr).as_deref_mut();
         let len = deque.len();
         let back_boundary = self.state.back_boundary(len);
+        let start = match range.start_bound() {
+            Bound::Included(&n) => n,
+            Bound::Excluded(&n) => n + 1,
+            Bound::Unbounded => 0,
+        };
+        let end = match range.end_bound() {
+            Bound::Included(&n) => (n + 1).min(back_boundary),
+            Bound::Excluded(&n) => n.min(back_boundary),
+            Bound::Unbounded => back_boundary,
+        };
         let slice = deque.make_contiguous();
-        unsafe { relocate(&self.state.inner, &mut slice[..back_boundary]) };
-        self.state.inner.get_mut().range_mut(range)
+        let inner = self.state.inner.get_mut();
+        inner.relocate(start..end, &mut slice[..back_boundary]);
+        let contiguous = inner.make_contiguous();
+        contiguous[start..end]
+            .iter_mut()
+            .map(|slot| unsafe { slot.assume_init_mut() })
     }
 
     /// See [`VecDeque::drain`].
@@ -334,7 +473,7 @@ where
         }
         self.untracked_mut().clear();
         let existing = len - self.state.front_prepend_len - self.state.back_append_len;
-        self.state.inner.get_mut().clear();
+        self.state.inner.get_mut().truncate(0);
         self.state.front_truncate_len += existing;
         self.state.front_prepend_len = 0;
         self.state.back_truncate_len = 0;
@@ -366,10 +505,7 @@ where
         } else {
             self.state.front_truncate_len += 1;
         }
-        let inner = self.state.inner.get_mut();
-        if !inner.is_empty() {
-            inner.pop_front();
-        }
+        self.state.inner.get_mut().pop_front();
         Some(value)
     }
 
@@ -382,10 +518,7 @@ where
             self.state.back_truncate_len += 1;
             let len = (*self).untracked_ref().len();
             let back_boundary = self.state.back_boundary(len);
-            let inner = self.state.inner.get_mut();
-            if inner.len() > back_boundary {
-                inner.truncate(back_boundary);
-            }
+            self.state.inner.get_mut().truncate(back_boundary);
         }
         Some(value)
     }
@@ -408,12 +541,7 @@ where
     pub fn push_front(&mut self, value: O::Head) {
         self.state.front_prepend_len += 1;
         self.untracked_mut().push_front(value);
-        let inner = self.state.inner.get_mut();
-        if !inner.is_empty() {
-            let deque = (*self.ptr).as_deref_mut();
-            let slice = deque.make_contiguous();
-            inner.push_front(O::observe(&mut slice[0]));
-        }
+        self.state.inner.get_mut().push_front_uninit();
     }
 
     /// See [`VecDeque::push_back`].
@@ -426,15 +554,21 @@ where
     #[rustversion::since(1.95)]
     pub fn push_front_mut(&mut self, value: O::Head) -> &mut O {
         self.push_front(value);
-        self.force_all().front_mut().unwrap()
+        self.force_all().first_mut().unwrap()
     }
 
     /// See [`VecDeque::push_back_mut`].
     #[rustversion::since(1.95)]
     pub fn push_back_mut(&mut self, value: O::Head) -> &mut O {
-        self.state.back_append_len += 1;
         self.untracked_mut().push_back(value);
-        self.force_all().back_mut().unwrap()
+        let deque = (*self.ptr).as_deref_mut();
+        let len = deque.len();
+        let index = len - 1;
+        let slice = deque.make_contiguous();
+        let inner = self.state.inner.get_mut();
+        inner.relocate(index..len, &mut slice[..len]);
+        self.state.back_append_len += 1;
+        unsafe { inner.get_mut(index).unwrap().assume_init_mut() }
     }
 
     /// See [`VecDeque::swap_remove_front`].
@@ -450,10 +584,7 @@ where
             self.state.mark_replace(len - 1);
             return Some(value);
         }
-        let inner = self.state.inner.get_mut();
-        if !inner.is_empty() {
-            inner.pop_front();
-        }
+        self.state.inner.get_mut().pop_front();
         Some(value)
     }
 
@@ -466,10 +597,7 @@ where
             self.state.back_append_len -= 1;
         } else if index + 1 == back_boundary && self.state.back_append_len == 0 {
             self.state.back_truncate_len += 1;
-            let inner = self.state.inner.get_mut();
-            if inner.len() > index {
-                inner.truncate(index);
-            }
+            self.state.inner.get_mut().truncate(index);
         } else {
             self.state.mark_replace(len - 1);
         }
@@ -486,12 +614,7 @@ where
         } else if index <= self.state.front_prepend_len {
             self.state.front_prepend_len += 1;
             self.untracked_mut().insert(index, value);
-            let inner = self.state.inner.get_mut();
-            if !inner.is_empty() {
-                let deque = (*self.ptr).as_deref_mut();
-                let slice = deque.make_contiguous();
-                inner.push_front(O::observe(&mut slice[index]));
-            }
+            self.state.inner.get_mut().push_front_uninit();
         } else {
             self.untracked_mut().insert(index, value);
             self.state.mark_replace(len + 1);
@@ -502,7 +625,12 @@ where
     #[rustversion::since(1.95)]
     pub fn insert_mut(&mut self, index: usize, value: O::Head) -> &mut O {
         self.insert(index, value);
-        self.force_all().get_mut(index).unwrap()
+        let deque = (*self.ptr).as_deref_mut();
+        let len = deque.len();
+        let slice = deque.make_contiguous();
+        let inner = self.state.inner.get_mut();
+        inner.relocate(index..index + 1, &mut slice[..len]);
+        unsafe { inner.get_mut(index).unwrap().assume_init_mut() }
     }
 
     /// See [`VecDeque::remove`].
@@ -515,10 +643,7 @@ where
         } else if index + 1 == back_boundary {
             self.state.back_truncate_len += 1;
             self.state.back_append_len = 0;
-            let inner = self.state.inner.get_mut();
-            if inner.len() > index {
-                inner.truncate(index);
-            }
+            self.state.inner.get_mut().truncate(index);
         } else {
             self.state.mark_replace(len - 1);
         }
@@ -535,10 +660,7 @@ where
         } else if at > self.state.front_prepend_len {
             self.state.back_truncate_len += back_boundary - at;
             self.state.back_append_len = 0;
-            let inner = self.state.inner.get_mut();
-            if inner.len() > at {
-                inner.truncate(at);
-            }
+            self.state.inner.get_mut().truncate(at);
         } else {
             self.state.mark_replace(at);
         }
@@ -581,10 +703,7 @@ where
         } else if new_len > self.state.front_prepend_len {
             self.state.back_truncate_len += back_boundary - new_len;
             self.state.back_append_len = 0;
-            let inner = self.state.inner.get_mut();
-            if inner.len() > new_len {
-                inner.truncate(new_len);
-            }
+            self.state.inner.get_mut().truncate(new_len);
         } else {
             self.state.mark_replace(new_len);
         }
@@ -592,12 +711,7 @@ where
 
     /// See [`VecDeque::make_contiguous`].
     pub fn make_contiguous(&mut self) -> &mut [O] {
-        let deque = (*self.ptr).as_deref_mut();
-        let len = deque.len();
-        let back_boundary = self.state.back_boundary(len);
-        let deque_slice = deque.make_contiguous();
-        unsafe { relocate(&self.state.inner, &mut deque_slice[..back_boundary]) };
-        self.state.inner.get_mut().make_contiguous()
+        self.force_all()
     }
 
     /// See [`VecDeque::rotate_left`].
@@ -636,10 +750,7 @@ where
         } else if new_len > self.state.front_prepend_len {
             self.state.back_truncate_len += back_boundary - new_len;
             self.state.back_append_len = 0;
-            let inner = self.state.inner.get_mut();
-            if inner.len() > new_len {
-                inner.truncate(new_len);
-            }
+            self.state.inner.get_mut().truncate(new_len);
         } else {
             self.state.mark_replace(new_len);
         }
