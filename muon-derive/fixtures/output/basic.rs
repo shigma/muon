@@ -74,14 +74,17 @@ const _: () = {
                 __phantom: ::std::marker::PhantomData,
             }
         }
-        unsafe fn relocate(this: &mut Self, head: &mut S) {
-            let __value = head.as_deref_mut();
+        unsafe fn relocate(this: &mut Self, head: *mut S) {
             unsafe {
-                ::muon::observe::Observer::relocate(&mut this.r#a, &mut __value.r#a);
-                ::muon::observe::Observer::relocate(&mut this.b, &mut __value.b);
-                ::muon::observe::Observer::relocate(&mut this.c, &mut __value.c);
+                let __value = ::muon::helper::AsDeref::<N>::as_deref_ptr(head);
+                ::muon::observe::Observer::relocate(
+                    &mut this.r#a,
+                    &raw mut (*__value).r#a,
+                );
+                ::muon::observe::Observer::relocate(&mut this.b, &raw mut (*__value).b);
+                ::muon::observe::Observer::relocate(&mut this.c, &raw mut (*__value).c);
+                ::muon::helper::Pointer::set_unchecked(this, head);
             }
-            ::muon::helper::Pointer::set(this, head);
         }
     }
     #[automatically_derived]
@@ -230,12 +233,12 @@ where
         let observer_0 = ::muon::observe::Observer::observe(&mut __value.0);
         Self(observer_0, ::muon::helper::Pointer::new(head), ::std::marker::PhantomData)
     }
-    unsafe fn relocate(this: &mut Self, head: &mut S) {
-        let __value = head.as_deref_mut();
+    unsafe fn relocate(this: &mut Self, head: *mut S) {
         unsafe {
-            ::muon::observe::Observer::relocate(&mut this.0, &mut __value.0);
+            let __value = ::muon::helper::AsDeref::<N>::as_deref_ptr(head);
+            ::muon::observe::Observer::relocate(&mut this.0, &raw mut (*__value).0);
+            ::muon::helper::Pointer::set_unchecked(this, head);
         }
-        ::muon::helper::Pointer::set(this, head);
     }
 }
 #[rustfmt::skip]
@@ -321,13 +324,13 @@ const _: () = {
                 ::std::marker::PhantomData,
             )
         }
-        unsafe fn relocate(this: &mut Self, head: &mut S) {
-            let __value = head.as_deref_mut();
+        unsafe fn relocate(this: &mut Self, head: *mut S) {
             unsafe {
-                ::muon::observe::Observer::relocate(&mut this.0, &mut __value.0);
-                ::muon::observe::Observer::relocate(&mut this.1, &mut __value.1);
+                let __value = ::muon::helper::AsDeref::<N>::as_deref_ptr(head);
+                ::muon::observe::Observer::relocate(&mut this.0, &raw mut (*__value).0);
+                ::muon::observe::Observer::relocate(&mut this.1, &raw mut (*__value).1);
+                ::muon::helper::Pointer::set_unchecked(this, head);
             }
-            ::muon::helper::Pointer::set(this, head);
         }
     }
     #[automatically_derived]

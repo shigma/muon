@@ -85,11 +85,11 @@ where
         this
     }
 
-    unsafe fn relocate(this: &mut Self, head: &mut Self::Head) {
-        if let (Some(inner), Some(value)) = (&mut this.state.inner, head.as_deref_mut().as_mut()) {
+    unsafe fn relocate(this: &mut Self, head: *mut Self::Head) {
+        if let (Some(inner), Some(value)) = (&mut this.state.inner, unsafe { (&mut *head).as_deref_mut().as_mut() }) {
             unsafe { O::relocate(inner, value) }
         }
-        Pointer::set(this, head);
+        unsafe { Pointer::set_unchecked(this, head) };
     }
 }
 
@@ -114,9 +114,9 @@ where
         this
     }
 
-    unsafe fn relocate(this: &mut Self, head: &Self::Head) {
-        Pointer::set(this, head);
-        if let (Some(inner), Some(value)) = (&mut this.state.inner, head.as_deref().as_ref()) {
+    unsafe fn relocate(this: &mut Self, head: *const Self::Head) {
+        unsafe { Pointer::set_unchecked(this, head) };
+        if let (Some(inner), Some(value)) = (&mut this.state.inner, unsafe { (&*head).as_deref().as_ref() }) {
             unsafe { O::relocate(inner, value) }
         }
     }

@@ -92,8 +92,8 @@ where
         this
     }
 
-    unsafe fn relocate(this: &mut Self, head: &mut Self::Head) {
-        let value = head.as_deref_mut();
+    unsafe fn relocate(this: &mut Self, head: *mut Self::Head) {
+        let value = unsafe { (&mut *head).as_deref_mut() };
         unsafe {
             match (&mut this.state.inner, value) {
                 (Bound::Included(o), Bound::Included(v)) => O::relocate(o, v),
@@ -102,7 +102,7 @@ where
                 _ => panic!("inconsistent state for BoundObserver"),
             }
         }
-        Pointer::set(this, head);
+        unsafe { Pointer::set_unchecked(this, head) };
     }
 }
 
@@ -133,9 +133,9 @@ where
         this
     }
 
-    unsafe fn relocate(this: &mut Self, head: &Self::Head) {
-        Pointer::set(this, head);
-        let value = head.as_deref();
+    unsafe fn relocate(this: &mut Self, head: *const Self::Head) {
+        unsafe { Pointer::set_unchecked(this, head) };
+        let value = unsafe { (&*head).as_deref() };
         unsafe {
             match (&mut this.state.inner, value) {
                 (Bound::Included(o), Bound::Included(v)) => O::relocate(o, v),

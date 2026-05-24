@@ -191,6 +191,47 @@ impl<T: AsDerefMut<N, Target: DerefMut + DerefPtr> + ?Sized, N: Unsigned> AsDere
     }
 }
 
+/// Extension trait providing [`AsDeref::as_deref_ptr`] as a method on raw pointers.
+#[allow(clippy::wrong_self_convention)]
+pub trait AsDerefPtrExt {
+    /// The type behind the raw pointer.
+    type Pointee: ?Sized;
+
+    /// Dereferences the pointer `D` times, returning a raw mutable pointer to the target.
+    ///
+    /// # Safety
+    ///
+    /// The pointer must be valid for the pointee type.
+    unsafe fn as_deref_ptr<D>(self) -> *mut <Self::Pointee as AsDeref<D>>::Target
+    where
+        D: Unsigned,
+        Self::Pointee: AsDeref<D>;
+}
+
+impl<T: ?Sized> AsDerefPtrExt for *mut T {
+    type Pointee = T;
+
+    unsafe fn as_deref_ptr<D>(self) -> *mut <T as AsDeref<D>>::Target
+    where
+        D: Unsigned,
+        Self::Pointee: AsDeref<D>,
+    {
+        unsafe { AsDeref::<D>::as_deref_ptr(self) }
+    }
+}
+
+impl<T: ?Sized> AsDerefPtrExt for *const T {
+    type Pointee = T;
+
+    unsafe fn as_deref_ptr<D>(self) -> *mut <T as AsDeref<D>>::Target
+    where
+        D: Unsigned,
+        Self::Pointee: AsDeref<D>,
+    {
+        unsafe { AsDeref::<D>::as_deref_ptr(self.cast_mut()) }
+    }
+}
+
 /// Trait for types that can be dereferenced `N` times (coinductive version).
 ///
 /// See the [module documentation](self) for details about inductive vs. coinductive.

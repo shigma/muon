@@ -195,8 +195,8 @@ where
         this
     }
 
-    unsafe fn relocate(this: &mut Self, head: &mut Self::Head) {
-        Pointer::set(this, head);
+    unsafe fn relocate(this: &mut Self, head: *mut Self::Head) {
+        unsafe { Pointer::set_unchecked(this, head) };
     }
 }
 

@@ -7,7 +7,7 @@ use serde::Serialize;
 use crate::Mutations;
 use crate::general::Snapshot;
 use crate::helper::macros::{spec_impl_observe, spec_impl_observe_from_ref, spec_impl_ref_observe};
-use crate::helper::{AsDeref, AsDerefMut, Pointer, QuasiObserver, Succ, Unsigned, Zero};
+use crate::helper::{AsDeref, AsDerefMut, AsDerefPtrExt, Pointer, QuasiObserver, Succ, Unsigned, Zero};
 use crate::observe::{Observer, RefObserver, SerializeObserver};
 
 macro_rules! impl_range {
@@ -73,12 +73,12 @@ macro_rules! impl_range {
                     this
                 }
 
-                unsafe fn relocate(this: &mut Self, head: &mut Self::Head) {
-                    let value = head.as_deref_mut();
+                unsafe fn relocate(this: &mut Self, head: *mut Self::Head) {
+                    let value = unsafe { head.as_deref_ptr::<D>() };
                     unsafe {
-                        $(O::relocate(&mut this.$field, &mut value.$field);)*
+                        $(O::relocate(&mut this.$field, &raw mut (*value).$field);)*
                     }
-                    Pointer::set(this, head);
+                    unsafe { Pointer::set_unchecked(this, head) };
                 }
             }
 
@@ -100,11 +100,11 @@ macro_rules! impl_range {
                     this
                 }
 
-                unsafe fn relocate(this: &mut Self, head: &Self::Head) {
-                    Pointer::set(this, head);
-                    let value = head.as_deref();
+                unsafe fn relocate(this: &mut Self, head: *const Self::Head) {
+                    unsafe { Pointer::set_unchecked(this, head) };
+                    let value = unsafe { head.as_deref_ptr::<D>() };
                     unsafe {
-                        $(O::relocate(&mut this.$field, &value.$field);)*
+                        $(O::relocate(&mut this.$field, &raw const (*value).$field);)*
                     }
                 }
             }
@@ -273,13 +273,13 @@ where
         this
     }
 
-    unsafe fn relocate(this: &mut Self, head: &mut Self::Head) {
-        let value = (*head).as_deref();
+    unsafe fn relocate(this: &mut Self, head: *mut Self::Head) {
+        let value = unsafe { &*head.as_deref_ptr::<D>() };
         unsafe {
             O::relocate(&mut this.start, value.start());
             O::relocate(&mut this.end, value.end());
         }
-        Pointer::set(this, head);
+        unsafe { Pointer::set_unchecked(this, head) };
     }
 }
 
@@ -303,9 +303,9 @@ where
         this
     }
 
-    unsafe fn relocate(this: &mut Self, head: &Self::Head) {
-        Pointer::set(this, head);
-        let value = head.as_deref();
+    unsafe fn relocate(this: &mut Self, head: *const Self::Head) {
+        unsafe { Pointer::set_unchecked(this, head) };
+        let value = unsafe { &*head.as_deref_ptr::<D>() };
         unsafe {
             O::relocate(&mut this.start, value.start());
             O::relocate(&mut this.end, value.end());

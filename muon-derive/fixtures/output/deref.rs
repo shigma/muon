@@ -53,7 +53,7 @@ const _: () = {
         N: ::muon::helper::Unsigned,
     {
         fn observe(head: &mut O::Head) -> Self {
-            let __value = ::muon::helper::AsDerefMut::<N>::as_deref_mut(head);
+            let __value = ::muon::helper::AsDerefMut::<N>::as_deref_mut(&mut *head);
             let b = ::muon::observe::Observer::observe(&mut __value.b);
             let a = ::muon::observe::Observer::observe(head);
             let this = Self { a, b };
@@ -61,10 +61,10 @@ const _: () = {
             ::muon::helper::Pointer::register_observer(ptr, &this.b);
             this
         }
-        unsafe fn relocate(this: &mut Self, head: &mut O::Head) {
+        unsafe fn relocate(this: &mut Self, head: *mut O::Head) {
             unsafe {
-                let __value = ::muon::helper::AsDerefMut::<N>::as_deref_mut(head);
-                ::muon::observe::Observer::relocate(&mut this.b, &mut __value.b);
+                let __value = ::muon::helper::AsDeref::<N>::as_deref_ptr(head);
+                ::muon::observe::Observer::relocate(&mut this.b, &raw mut (*__value).b);
                 ::muon::observe::Observer::relocate(&mut this.a, head);
             }
         }
@@ -189,7 +189,7 @@ const _: () = {
         N: ::muon::helper::Unsigned,
     {
         fn observe(head: &mut O::Head) -> Self {
-            let __value = ::muon::helper::AsDerefMut::<N>::as_deref_mut(head);
+            let __value = ::muon::helper::AsDerefMut::<N>::as_deref_mut(&mut *head);
             let observer_1 = ::muon::observe::Observer::observe(&mut __value.1);
             let observer_0 = ::muon::observe::Observer::observe(head);
             let this = Self(observer_0, observer_1);
@@ -197,10 +197,10 @@ const _: () = {
             ::muon::helper::Pointer::register_observer(ptr, &this.1);
             this
         }
-        unsafe fn relocate(this: &mut Self, head: &mut O::Head) {
+        unsafe fn relocate(this: &mut Self, head: *mut O::Head) {
             unsafe {
-                let __value = ::muon::helper::AsDerefMut::<N>::as_deref_mut(head);
-                ::muon::observe::Observer::relocate(&mut this.1, &mut __value.1);
+                let __value = ::muon::helper::AsDeref::<N>::as_deref_ptr(head);
+                ::muon::observe::Observer::relocate(&mut this.1, &raw mut (*__value).1);
                 ::muon::observe::Observer::relocate(&mut this.0, head);
             }
         }
@@ -328,7 +328,7 @@ const _: () = {
             let observer_0 = ::muon::observe::Observer::observe(head);
             Self(observer_0)
         }
-        unsafe fn relocate(this: &mut Self, head: &mut O::Head) {
+        unsafe fn relocate(this: &mut Self, head: *mut O::Head) {
             unsafe {
                 ::muon::observe::Observer::relocate(&mut this.0, head);
             }

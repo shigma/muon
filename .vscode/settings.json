@@ -32,6 +32,7 @@
         "MSRV",
         "muon",
         "newtype",
+        "pointee",
         "prettyplease",
         "qself",
         "rchunks",

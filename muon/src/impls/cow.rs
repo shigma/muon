@@ -72,16 +72,16 @@ where
         }
     }
 
-    unsafe fn relocate(this: &mut Self, head: &mut Self::Head) {
+    unsafe fn relocate(this: &mut Self, head: *mut Self::Head) {
         unsafe { B::relocate(&mut this.inner, head) }
         if let Some(owned) = &mut this.owned {
-            match AsDerefMut::<D>::as_deref_mut(head) {
+            match unsafe { AsDerefMut::<D>::as_deref_mut(&mut *head) } {
                 Cow::Borrowed(_) => panic!("inconsistent state for CowObserver"),
                 Cow::Owned(value) => unsafe { O::relocate(owned, value) },
             }
         }
         // Re-expose with mutable provenance (see observe for rationale).
-        Pointer::set(this.inner.as_deref_coinductive(), &mut *head);
+        Pointer::set(this.inner.as_deref_coinductive(), unsafe { &mut *head });
     }
 }
 

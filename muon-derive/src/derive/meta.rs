@@ -318,11 +318,8 @@ impl ObserveMeta {
             if attr.path().is_ident("muon") {
                 let syn::Meta::List(meta_list) = &attr.meta else {
                     errors.extend(
-                        syn::Error::new(
-                            attr.span(),
-                            "the 'muon' attribute must be in the form of #[muon(...)]",
-                        )
-                        .to_compile_error(),
+                        syn::Error::new(attr.span(), "the 'muon' attribute must be in the form of #[muon(...)]")
+                            .to_compile_error(),
                     );
                     continue;
                 };

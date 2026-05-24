@@ -411,9 +411,7 @@ pub fn derive_observe_for_enum(
 
     let mut ob_generics = ob_variant_generics.clone();
     ob_generics.params.push(parse_quote! { #head: ?Sized });
-    ob_generics
-        .params
-        .push(parse_quote! { #depth = ::muon::helper::Zero });
+    ob_generics.params.push(parse_quote! { #depth = ::muon::helper::Zero });
 
     let (ob_impl_generics, ob_type_generics, _) = ob_generics.split_for_impl();
     let (ob_variant_impl_generics, ob_variant_type_generics, _) = ob_variant_generics.split_for_impl();
@@ -599,12 +597,12 @@ pub fn derive_observe_for_enum(
                 }
             }
 
-            unsafe fn relocate(this: &mut Self, head: &mut #head) {
+            unsafe fn relocate(this: &mut Self, head: *mut #head) {
                 #(#if_has_variant
-                    let __value = head.as_deref_mut();
+                    let __value = unsafe { (&mut *head).as_deref_mut() };
                     unsafe { this.variant.relocate(__value) }
                 )*
-                ::muon::helper::Pointer::set(this, head);
+                unsafe { ::muon::helper::Pointer::set_unchecked(this, head) };
             }
         }
 

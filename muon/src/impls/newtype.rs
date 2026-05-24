@@ -7,7 +7,7 @@ use std::ops::{Deref, DerefMut};
 use crate::Mutations;
 use crate::general::Snapshot;
 use crate::helper::macros::{spec_impl_observe, spec_impl_ref_observe};
-use crate::helper::{AsDeref, AsDerefMut, Pointer, QuasiObserver, Succ, Unsigned, Zero};
+use crate::helper::{AsDeref, AsDerefMut, AsDerefPtrExt, Pointer, QuasiObserver, Succ, Unsigned, Zero};
 use crate::observe::{Observer, RefObserver, SerializeObserver};
 
 /// Helper trait to access the inner field of a transparent newtype wrapper.
@@ -16,6 +16,7 @@ pub trait Newtype {
 
     fn as_inner(&self) -> &Self::Inner;
     fn as_inner_mut(&mut self) -> &mut Self::Inner;
+    fn as_inner_ptr(this: *mut Self) -> *mut Self::Inner;
 }
 
 impl<T> Newtype for Wrapping<T> {
@@ -27,6 +28,10 @@ impl<T> Newtype for Wrapping<T> {
 
     fn as_inner_mut(&mut self) -> &mut T {
         &mut self.0
+    }
+
+    fn as_inner_ptr(this: *mut Self) -> *mut T {
+        unsafe { &raw mut (*this).0 }
     }
 }
 
@@ -40,6 +45,10 @@ impl<T> Newtype for Saturating<T> {
     fn as_inner_mut(&mut self) -> &mut T {
         &mut self.0
     }
+
+    fn as_inner_ptr(this: *mut Self) -> *mut T {
+        unsafe { &raw mut (*this).0 }
+    }
 }
 
 impl<T> Newtype for Reverse<T> {
@@ -51,6 +60,10 @@ impl<T> Newtype for Reverse<T> {
 
     fn as_inner_mut(&mut self) -> &mut T {
         &mut self.0
+    }
+
+    fn as_inner_ptr(this: *mut Self) -> *mut T {
+        unsafe { &raw mut (*this).0 }
     }
 }
 
@@ -105,10 +118,10 @@ where
         this
     }
 
-    unsafe fn relocate(this: &mut Self, head: &mut Self::Head) {
-        let value = head.as_deref_mut();
-        unsafe { O::relocate(&mut this.0, value.as_inner_mut()) }
-        Pointer::set(&this.1, head);
+    unsafe fn relocate(this: &mut Self, head: *mut Self::Head) {
+        let value = unsafe { head.as_deref_ptr::<D>() };
+        unsafe { O::relocate(&mut this.0, Newtype::as_inner_ptr(value)) }
+        unsafe { Pointer::set_unchecked(&this.1, head) };
     }
 }
 
@@ -126,10 +139,10 @@ where
         this
     }
 
-    unsafe fn relocate(this: &mut Self, head: &Self::Head) {
-        Pointer::set(&this.1, head);
-        let value = head.as_deref();
-        unsafe { O::relocate(&mut this.0, value.as_inner()) }
+    unsafe fn relocate(this: &mut Self, head: *const Self::Head) {
+        unsafe { Pointer::set_unchecked(&this.1, head) };
+        let value = unsafe { head.as_deref_ptr::<D>() };
+        unsafe { O::relocate(&mut this.0, Newtype::as_inner_ptr(value)) }
     }
 }
 

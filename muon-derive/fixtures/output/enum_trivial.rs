@@ -70,8 +70,8 @@ const _: () = {
                 phantom: ::std::marker::PhantomData,
             }
         }
-        unsafe fn relocate(this: &mut Self, head: &mut S) {
-            ::muon::helper::Pointer::set(this, head);
+        unsafe fn relocate(this: &mut Self, head: *mut S) {
+            unsafe { ::muon::helper::Pointer::set_unchecked(this, head) };
         }
     }
     #[automatically_derived]

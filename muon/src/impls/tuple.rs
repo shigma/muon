@@ -6,7 +6,7 @@ use serde::Serialize;
 
 use crate::general::Snapshot;
 use crate::helper::macros::{spec_impl_observe, spec_impl_ref_observe};
-use crate::helper::{AsDeref, AsDerefMut, Pointer, QuasiObserver, Succ, Unsigned, Zero};
+use crate::helper::{AsDeref, AsDerefMut, AsDerefPtrExt, Pointer, QuasiObserver, Succ, Unsigned, Zero};
 use crate::observe::{DefaultSpec, Observer, RefObserve, RefObserver, SerializeObserver};
 use crate::{Mutations, Observe};
 
@@ -60,10 +60,10 @@ where
         this
     }
 
-    unsafe fn relocate(this: &mut Self, head: &mut Self::Head) {
-        let tuple = head.as_deref_mut();
-        unsafe { O::relocate(&mut this.0, &mut tuple.0) }
-        Pointer::set(&this.1, head);
+    unsafe fn relocate(this: &mut Self, head: *mut Self::Head) {
+        let tuple = unsafe { head.as_deref_ptr::<D>() };
+        unsafe { O::relocate(&mut this.0, &raw mut (*tuple).0) }
+        unsafe { Pointer::set_unchecked(&this.1, head) };
     }
 }
 
@@ -81,10 +81,10 @@ where
         this
     }
 
-    unsafe fn relocate(this: &mut Self, head: &Self::Head) {
-        Pointer::set(&this.1, head);
-        let tuple = head.as_deref();
-        unsafe { O::relocate(&mut this.0, &tuple.0) }
+    unsafe fn relocate(this: &mut Self, head: *const Self::Head) {
+        unsafe { Pointer::set_unchecked(&this.1, head) };
+        let tuple = unsafe { head.as_deref_ptr::<D>() };
+        unsafe { O::relocate(&mut this.0, &raw const (*tuple).0) }
     }
 }
 
@@ -278,12 +278,12 @@ macro_rules! tuple_observer {
                 this
             }
 
-            unsafe fn relocate(this: &mut Self, head: &mut Self::Head) {
-                let tuple = head.as_deref_mut();
+            unsafe fn relocate(this: &mut Self, head: *mut Self::Head) {
+                let tuple = unsafe { head.as_deref_ptr::<D>() };
                 unsafe {
-                    $($o::relocate(&mut this.$n, &mut tuple.$n);)*
+                    $($o::relocate(&mut this.$n, &raw mut (*tuple).$n);)*
                 }
-                Pointer::set(&this.$ptr, head);
+        unsafe { Pointer::set_unchecked(&this.$ptr, head) };
             }
         }
 
@@ -304,11 +304,11 @@ macro_rules! tuple_observer {
                 this
             }
 
-            unsafe fn relocate(this: &mut Self, head: &Self::Head) {
-                Pointer::set(&this.$ptr, head);
-                let tuple = head.as_deref();
+            unsafe fn relocate(this: &mut Self, head: *const Self::Head) {
+        unsafe { Pointer::set_unchecked(&this.$ptr, head) };
+                let tuple = unsafe { head.as_deref_ptr::<D>() };
                 unsafe {
-                    $($o::relocate(&mut this.$n, &tuple.$n);)*
+                    $($o::relocate(&mut this.$n, &raw const (*tuple).$n);)*
                 }
             }
         }

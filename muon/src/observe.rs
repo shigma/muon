@@ -179,16 +179,17 @@ pub trait Observer: QuasiObserver<Target = Pointer<<Self as QuasiObserver>::Head
     /// of the observed value. It is necessary when the observed value is relocated in
     /// memory (e.g., due to [`Vec`] reallocation) while the observer remains active.
     ///
+    /// ## Guarantee
+    ///
+    /// After `relocate` returns, the observer's internal [`Pointer`] must hold provenance
+    /// compatible with `head`. This ensures that subsequent accesses through the pointer
+    /// (e.g., via [`DerefMut`](std::ops::DerefMut)) remain valid.
+    ///
     /// ## Safety
     ///
     /// The caller must ensure that `head` refers to the same logical value with which the
     /// observer was initialized, just potentially at a new memory location.
-    ///
-    /// ## Use Cases
-    ///
-    /// This method should be called after any operation that may relocate the observed
-    /// value in memory while the observer is still in use.
-    unsafe fn relocate(this: &mut Self, head: &mut Self::Head);
+    unsafe fn relocate(this: &mut Self, head: *mut Self::Head);
 }
 
 /// Shared-reference counterpart to [`Observer`].
@@ -207,13 +208,13 @@ pub trait RefObserver: QuasiObserver<Target = Pointer<<Self as QuasiObserver>::H
 
     /// Updates the observer's internal pointer after the observed value has moved.
     ///
-    /// See [`Observer::relocate`] for details. The only difference is that `head` is a shared
-    /// reference, maintaining shared provenance.
+    /// See [`Observer::relocate`] for details. The only difference is that `head` is a
+    /// `*const` pointer, maintaining shared provenance.
     ///
     /// ## Safety
     ///
     /// Same requirements as [`Observer::relocate`].
-    unsafe fn relocate(this: &mut Self, head: &Self::Head);
+    unsafe fn relocate(this: &mut Self, head: *const Self::Head);
 }
 
 /// Extends [`Observer`] with the ability to flush recorded mutations as serializable values.

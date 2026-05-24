@@ -178,10 +178,10 @@ const _: () = {
                 phantom: ::std::marker::PhantomData,
             }
         }
-        unsafe fn relocate(this: &mut Self, head: &mut S) {
-            let __value = head.as_deref_mut();
+        unsafe fn relocate(this: &mut Self, head: *mut S) {
+            let __value = unsafe { (&mut *head).as_deref_mut() };
             unsafe { this.variant.relocate(__value) }
-            ::muon::helper::Pointer::set(this, head);
+            unsafe { ::muon::helper::Pointer::set_unchecked(this, head) };
         }
     }
     #[automatically_derived]

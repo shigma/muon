@@ -213,7 +213,7 @@ where
         }
     }
 
-    unsafe fn relocate(this: &mut Self, head: &mut Self::Head) {
+    unsafe fn relocate(this: &mut Self, head: *mut Self::Head) {
         unsafe { Observer::relocate(&mut this.inner, head) }
     }
 }

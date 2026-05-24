@@ -103,7 +103,7 @@ pub fn derive_observe_for_struct(
                 let #observer_ident = ::muon::helper::Pointer::new(&mut __value.#field_member);
             });
             relocate_stmts.extend(quote_spanned! { field_span =>
-                ::muon::helper::Pointer::set(&this.#field_member, &mut __value.#field_member);
+                ::muon::helper::Pointer::set_unchecked(&this.#field_member, &raw mut (*__value).#field_member);
             });
             continue;
         }
@@ -140,7 +140,7 @@ pub fn derive_observe_for_struct(
             }
             non_deref_members.push(field_member.clone());
             relocate_stmts.extend(quote_spanned! { field_span =>
-                ::muon::observe::Observer::relocate(&mut this.#field_member, &mut __value.#field_member);
+                ::muon::observe::Observer::relocate(&mut this.#field_member, &raw mut (*__value).#field_member);
             });
             ob_fields.extend(quote_spanned! { field_span =>
                 #field_vis #(#if_named #field_ident:)* #ob_field_ty,
@@ -243,9 +243,7 @@ pub fn derive_observe_for_struct(
     if deref_fields.is_empty() {
         ob_generics.params.insert(0, parse_quote! { #ob_lt });
         ob_generics.params.push(parse_quote! { #head: ?Sized });
-        ob_generics
-            .params
-            .push(parse_quote! { #depth = ::muon::helper::Zero });
+        ob_generics.params.push(parse_quote! { #depth = ::muon::helper::Zero });
         ob_quasi_generics = ob_generics.clone();
         ob_quasi_predicates = quote! {
             #head: ::muon::helper::AsDeref<#depth>,
@@ -309,12 +307,12 @@ pub fn derive_observe_for_struct(
                 #observer_observe_expr
             }
 
-            unsafe fn relocate(this: &mut Self, head: &mut #head) {
-                let __value = head.as_deref_mut();
+            unsafe fn relocate(this: &mut Self, head: *mut #head) {
                 unsafe {
+                    let __value = ::muon::helper::AsDeref::<#depth>::as_deref_ptr(head);
                     #relocate_stmts
+                    ::muon::helper::Pointer::set_unchecked(this, head);
                 }
-                ::muon::helper::Pointer::set(this, head);
             }
         };
 
@@ -401,7 +399,15 @@ pub fn derive_observe_for_struct(
 
         let prepare_value = if field_count > 1 {
             quote! {
-                let __value = ::muon::helper::AsDerefMut::<#depth>::as_deref_mut(head);
+                let __value = ::muon::helper::AsDerefMut::<#depth>::as_deref_mut(&mut *head);
+            }
+        } else {
+            quote! {}
+        };
+
+        let prepare_value_ptr = if field_count > 1 {
+            quote! {
+                let __value = ::muon::helper::AsDeref::<#depth>::as_deref_ptr(head);
             }
         } else {
             quote! {}
@@ -424,9 +430,9 @@ pub fn derive_observe_for_struct(
                 #observer_observe_expr
             }
 
-            unsafe fn relocate(this: &mut Self, head: &mut #inner::Head) {
+            unsafe fn relocate(this: &mut Self, head: *mut #inner::Head) {
                 unsafe {
-                    #prepare_value
+                    #prepare_value_ptr
                     #relocate_stmts
                     ::muon::observe::Observer::relocate(&mut this.#field_member, head);
                 }

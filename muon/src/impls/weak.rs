@@ -90,13 +90,13 @@ where
         }
     }
 
-    unsafe fn relocate(this: &mut Self, head: &mut Self::Head) {
+    unsafe fn relocate(this: &mut Self, head: *mut Self::Head) {
         if let Some(inner) = &mut this.inner
-            && let Some(ptr) = (*head).as_deref().upgrade()
+            && let Some(ptr) = unsafe { (&*head).as_deref().upgrade() }
         {
             unsafe { O::relocate(inner, &*ptr) }
         }
-        Pointer::set(&this.ptr, head);
+        unsafe { Pointer::set_unchecked(&this.ptr, head) };
     }
 }
 
@@ -117,9 +117,9 @@ where
         }
     }
 
-    unsafe fn relocate(this: &mut Self, head: &Self::Head) {
+    unsafe fn relocate(this: &mut Self, head: *const Self::Head) {
         if let Some(inner) = &mut this.inner
-            && let Some(ptr) = head.as_deref().upgrade()
+            && let Some(ptr) = unsafe { (&*head).as_deref().upgrade() }
         {
             unsafe { O::relocate(inner, &*ptr) }
         }

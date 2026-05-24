@@ -249,8 +249,8 @@ macro_rules! __shallow_observer {
                 this
             }
 
-            unsafe fn relocate(this: &mut Self, head: &mut Self::Head) {
-                $crate::helper::Pointer::set(this, head);
+            unsafe fn relocate(this: &mut Self, head: *mut Self::Head) {
+                unsafe { $crate::helper::Pointer::set_unchecked(this, head) };
             }
         }
 
@@ -270,8 +270,8 @@ macro_rules! __shallow_observer {
                 this
             }
 
-            unsafe fn relocate(this: &mut Self, head: &Self::Head) {
-                $crate::helper::Pointer::set(this, head);
+            unsafe fn relocate(this: &mut Self, head: *const Self::Head) {
+                unsafe { $crate::helper::Pointer::set_unchecked(this, head) };
             }
         }
 

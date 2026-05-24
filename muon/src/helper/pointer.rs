@@ -131,6 +131,21 @@ impl<S: ?Sized> Pointer<S> {
         this.inner.set(ptr);
     }
 
+    /// Updates the internal pointer from a raw pointer.
+    ///
+    /// Like [`Pointer::set`], but accepts a raw `*mut S` directly. Used in
+    /// [`Observer::relocate`](crate::observe::Observer::relocate) implementations where the
+    /// head is received as a raw pointer.
+    ///
+    /// # Safety
+    ///
+    /// `head` must be non-null and valid for the lifetime of this [`Pointer`].
+    pub unsafe fn set_unchecked(this: &Self, head: *const S) {
+        let ptr = unsafe { NonNull::new_unchecked(head.cast_mut()) };
+        ptr.cast::<u8>().expose_provenance();
+        this.inner.set(ptr);
+    }
+
     /// Returns a reference to the pointed value.
     ///
     /// Uses [exposed provenance](std::ptr#exposed-provenance) to recover a valid pointer tag.

@@ -101,14 +101,14 @@ const _: () = {
                 __phantom: ::std::marker::PhantomData,
             }
         }
-        unsafe fn relocate(this: &mut Self, head: &mut _S) {
-            let __value = head.as_deref_mut();
+        unsafe fn relocate(this: &mut Self, head: *mut _S) {
             unsafe {
-                ::muon::observe::Observer::relocate(&mut this.a, &mut __value.a);
-                ::muon::helper::Pointer::set(&this.b, &mut __value.b);
-                ::muon::observe::Observer::relocate(&mut this.c, &mut __value.c);
+                let __value = ::muon::helper::AsDeref::<_N>::as_deref_ptr(head);
+                ::muon::observe::Observer::relocate(&mut this.a, &raw mut (*__value).a);
+                ::muon::helper::Pointer::set_unchecked(&this.b, &raw mut (*__value).b);
+                ::muon::observe::Observer::relocate(&mut this.c, &raw mut (*__value).c);
+                ::muon::helper::Pointer::set_unchecked(this, head);
             }
-            ::muon::helper::Pointer::set(this, head);
         }
     }
     #[automatically_derived]

@@ -93,7 +93,7 @@ where
         }
     }
 
-    unsafe fn relocate(this: &mut Self, head: &mut Self::Head) {
+    unsafe fn relocate(this: &mut Self, head: *mut Self::Head) {
         unsafe { O::relocate(&mut this.inner, head) }
     }
 }
@@ -110,7 +110,7 @@ where
         }
     }
 
-    unsafe fn relocate(this: &mut Self, head: &Self::Head) {
+    unsafe fn relocate(this: &mut Self, head: *const Self::Head) {
         unsafe { O::relocate(&mut this.inner, head) }
     }
 }
@@ -127,7 +127,7 @@ where
         }
     }
 
-    unsafe fn relocate(this: &mut Self, head: &mut Self::Head) {
+    unsafe fn relocate(this: &mut Self, head: *mut Self::Head) {
         unsafe { O::relocate(&mut this.inner, head) }
     }
 }
