@@ -128,6 +128,12 @@ const _: () = {
             S: ::muon::helper::AsDerefMut<N, Target = Self> + ?Sized + 'ob;
         type Spec = ::muon::observe::DefaultSpec;
     }
+    #[automatically_derived]
+    impl<T> ::muon::helper::DerefPtr for Foo<T> {
+        unsafe fn deref_ptr(this: *mut Self) -> *mut Self::Target {
+            unsafe { &raw mut (*this).a }
+        }
+    }
 };
 impl<T> Deref for Foo<T> {
     type Target = Vec<T>;
@@ -259,6 +265,12 @@ const _: () = {
             S: ::muon::helper::AsDerefMut<N, Target = Self> + ?Sized + 'ob;
         type Spec = ::muon::observe::DefaultSpec;
     }
+    #[automatically_derived]
+    impl ::muon::helper::DerefPtr for Bar {
+        unsafe fn deref_ptr(this: *mut Self) -> *mut Self::Target {
+            unsafe { &raw mut (*this).0 }
+        }
+    }
 };
 impl Deref for Bar {
     type Target = Qux;
@@ -350,6 +362,12 @@ const _: () = {
             N: ::muon::helper::Unsigned,
             S: ::muon::helper::AsDerefMut<N, Target = Self> + ?Sized + 'ob;
         type Spec = ::muon::observe::DefaultSpec;
+    }
+    #[automatically_derived]
+    impl ::muon::helper::DerefPtr for Qux {
+        unsafe fn deref_ptr(this: *mut Self) -> *mut Self::Target {
+            unsafe { &raw mut (*this).0 }
+        }
     }
 };
 impl Deref for Qux {

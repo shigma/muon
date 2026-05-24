@@ -18,7 +18,7 @@ pub mod quasi;
 pub mod shallow;
 pub mod unsigned;
 
-pub use deref::{AsDeref, AsDerefCoinductive, AsDerefMut, AsDerefMutCoinductive};
+pub use deref::{AsDeref, AsDerefCoinductive, AsDerefMut, AsDerefMutCoinductive, DerefPtr};
 pub use pointer::Pointer;
 pub use quasi::{Invalidate, QuasiObserver};
 pub use unsigned::{Succ, Unsigned, Zero};

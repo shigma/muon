@@ -238,6 +238,7 @@ pub fn derive_observe_for_struct(
     let ob_observer_predicates;
     let input_observe_predicates;
     let input_observer_type_generics;
+    let input_deref_ptr_impl;
 
     if deref_fields.is_empty() {
         ob_generics.params.insert(0, parse_quote! { #ob_lt });
@@ -325,6 +326,7 @@ pub fn derive_observe_for_struct(
         };
 
         input_observe_predicates = quote! {};
+        input_deref_ptr_impl = quote! {};
         let (_, ob_type_generics, _) = ob_generics.split_for_impl();
         input_observer_type_generics = quote! { #ob_type_generics };
     } else if deref_fields.len() > 1 {
@@ -441,6 +443,19 @@ pub fn derive_observe_for_struct(
         };
 
         input_observe_predicates = quote! { #field_ty: ::muon::Observe, };
+
+        input_deref_ptr_impl = quote! {
+            #[automatically_derived]
+            impl #input_impl_generics ::muon::helper::DerefPtr
+            for #input_ident #input_type_generics
+            where
+                #(#input_predicates,)*
+            {
+                unsafe fn deref_ptr(this: *mut Self) -> *mut Self::Target {
+                    unsafe { &raw mut (*this).#field_member }
+                }
+            }
+        };
 
         let ob_type_arguments = ob_generics.params.iter().map(|param| match param {
             syn::GenericParam::Type(ty_param) if ty_param.ident == inner => quote! { #ob_field_ty },
@@ -613,6 +628,8 @@ pub fn derive_observe_for_struct(
                 #head: ::muon::helper::AsDerefMut<#depth, Target = Self> + ?Sized + #ob_lt;
             type Spec = ::muon::observe::DefaultSpec;
         }
+
+        #input_deref_ptr_impl
     };
 
     for path in &input_meta.derive.1 {

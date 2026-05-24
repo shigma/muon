@@ -23,9 +23,111 @@
 //! These traits use [`Zero`] and [`Succ`] to represent the depth of dereferencing at the type
 //! level, enabling compile-time verification of dereference chains.
 
+use std::borrow::Cow;
+use std::ffi::{CString, OsString};
 use std::ops::{Deref, DerefMut};
+use std::path::PathBuf;
+use std::rc::Rc;
+use std::sync::Arc;
 
 use crate::helper::unsigned::{Succ, Unsigned, Zero};
+
+/// Trait for types that can provide a raw mutable pointer to their deref target.
+///
+/// This is the raw-pointer counterpart of [`Deref`]. It enables traversal of dereference chains
+/// without creating intermediate references, which is needed for
+/// [`Observer::relocate`](crate::observe::Observer::relocate) to avoid Stacked Borrows retagging.
+///
+/// # Implementation Contract
+///
+/// The returned pointer MUST NOT be retagged during its construction. It is acceptable to retag
+/// `Self` (e.g., by creating `&Self` to read metadata) as long as `Self` and `Target` do not
+/// overlap in memory. For types where `Target` lives in a separate allocation (e.g., [`Box`],
+/// [`Vec`], [`Rc`]), creating `&Self` is safe since it only retags the container struct, not the
+/// heap-allocated target.
+pub trait DerefPtr: Deref {
+    /// Returns a raw mutable pointer to the deref target.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure `this` is a valid pointer to `Self`.
+    unsafe fn deref_ptr(this: *mut Self) -> *mut Self::Target;
+}
+
+impl<T: ?Sized> DerefPtr for &T {
+    unsafe fn deref_ptr(this: *mut Self) -> *mut Self::Target {
+        unsafe { (*this) as *const T as *mut T }
+    }
+}
+
+impl<T: ?Sized> DerefPtr for &mut T {
+    unsafe fn deref_ptr(this: *mut Self) -> *mut Self::Target {
+        unsafe { *this }
+    }
+}
+
+impl<T: ?Sized> DerefPtr for Box<T> {
+    unsafe fn deref_ptr(this: *mut Self) -> *mut Self::Target {
+        unsafe { (&*this).deref() as *const T as *mut T }
+    }
+}
+
+impl<T: ?Sized> DerefPtr for Rc<T> {
+    unsafe fn deref_ptr(this: *mut Self) -> *mut Self::Target {
+        unsafe { Rc::as_ptr(&*this) as *mut T }
+    }
+}
+
+impl<T: ?Sized> DerefPtr for Arc<T> {
+    unsafe fn deref_ptr(this: *mut Self) -> *mut Self::Target {
+        unsafe { Arc::as_ptr(&*this) as *mut T }
+    }
+}
+
+impl<'a, B: ToOwned + ?Sized> DerefPtr for Cow<'a, B> {
+    unsafe fn deref_ptr(this: *mut Self) -> *mut Self::Target {
+        unsafe { (*this).deref() as *const B as *mut B }
+    }
+}
+
+impl<T> DerefPtr for Vec<T> {
+    unsafe fn deref_ptr(this: *mut Self) -> *mut Self::Target {
+        unsafe {
+            let vec = &*this;
+            std::ptr::slice_from_raw_parts_mut(vec.as_ptr() as *mut T, vec.len())
+        }
+    }
+}
+
+impl DerefPtr for String {
+    unsafe fn deref_ptr(this: *mut Self) -> *mut Self::Target {
+        unsafe {
+            let s = &*this;
+            std::mem::transmute::<*mut [u8], *mut str>(std::ptr::slice_from_raw_parts_mut(
+                s.as_ptr() as *mut u8,
+                s.len(),
+            ))
+        }
+    }
+}
+
+impl DerefPtr for OsString {
+    unsafe fn deref_ptr(this: *mut Self) -> *mut Self::Target {
+        unsafe { (&*this).deref() as *const _ as *mut _ }
+    }
+}
+
+impl DerefPtr for CString {
+    unsafe fn deref_ptr(this: *mut Self) -> *mut Self::Target {
+        unsafe { (&*this).deref() as *const _ as *mut _ }
+    }
+}
+
+impl DerefPtr for PathBuf {
+    unsafe fn deref_ptr(this: *mut Self) -> *mut Self::Target {
+        unsafe { (&*this).deref() as *const _ as *mut _ }
+    }
+}
 
 /// Trait for types that can be dereferenced `N` times (inductive version).
 ///
@@ -36,6 +138,13 @@ pub trait AsDeref<N: Unsigned> {
 
     /// Dereferences self `N` times.
     fn as_deref(&self) -> &Self::Target;
+
+    /// Returns a raw mutable pointer to the target after `N` dereferences.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure `this` is a valid pointer to `Self`.
+    unsafe fn as_deref_ptr(this: *mut Self) -> *mut Self::Target;
 }
 
 /// Trait for types that can be mutably dereferenced `N` times (inductive version).
@@ -52,6 +161,10 @@ impl<T: ?Sized> AsDeref<Zero> for T {
     fn as_deref(&self) -> &T {
         self
     }
+
+    unsafe fn as_deref_ptr(this: *mut Self) -> *mut Self::Target {
+        this
+    }
 }
 
 impl<T: ?Sized> AsDerefMut<Zero> for T {
@@ -60,15 +173,19 @@ impl<T: ?Sized> AsDerefMut<Zero> for T {
     }
 }
 
-impl<T: AsDeref<N, Target: Deref> + ?Sized, N: Unsigned> AsDeref<Succ<N>> for T {
+impl<T: AsDeref<N, Target: DerefPtr> + ?Sized, N: Unsigned> AsDeref<Succ<N>> for T {
     type Target = <T::Target as Deref>::Target;
 
     fn as_deref(&self) -> &Self::Target {
         self.as_deref().deref()
     }
+
+    unsafe fn as_deref_ptr(this: *mut Self) -> *mut Self::Target {
+        unsafe { DerefPtr::deref_ptr(AsDeref::<N>::as_deref_ptr(this)) }
+    }
 }
 
-impl<T: AsDerefMut<N, Target: DerefMut> + ?Sized, N: Unsigned> AsDerefMut<Succ<N>> for T {
+impl<T: AsDerefMut<N, Target: DerefMut + DerefPtr> + ?Sized, N: Unsigned> AsDerefMut<Succ<N>> for T {
     fn as_deref_mut(&mut self) -> &mut Self::Target {
         self.as_deref_mut().deref_mut()
     }
