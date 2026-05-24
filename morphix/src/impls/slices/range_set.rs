@@ -70,10 +70,6 @@ impl RangeSet {
         Self { set: BTreeSet::new() }
     }
 
-    pub fn clear(&mut self) {
-        self.set.clear();
-    }
-
     pub fn iter(&self) -> impl Iterator<Item = &Range<usize>> {
         self.set.iter().map(|e| &e.0)
     }

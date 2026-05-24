@@ -44,12 +44,12 @@ where
         slice.each_mut().map(O::observe)
     }
 
-    fn force_index<I: SliceIndexImpl>(&self, index: I, _slice: &mut Self::Target) -> &I::Output<O> {
-        index.index(self.as_slice())
+    fn get<I: SliceIndexImpl>(&self, index: I, _slice: &mut Self::Target) -> Option<&I::Output<O>> {
+        index.get(self.as_slice())
     }
 
-    fn force_index_mut<I: SliceIndexImpl>(&mut self, index: I, _slice: &mut Self::Target) -> &mut I::Output<O> {
-        index.index_mut(self.as_mut_slice())
+    fn get_mut<I: SliceIndexImpl>(&mut self, index: I, _slice: &mut Self::Target) -> Option<&mut I::Output<O>> {
+        index.get_mut(self.as_mut_slice())
     }
 }
 

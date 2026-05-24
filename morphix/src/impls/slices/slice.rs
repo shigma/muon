@@ -3,16 +3,18 @@
 use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::marker::PhantomData;
+use std::mem::MaybeUninit;
 use std::ops::{Deref, DerefMut, Index, IndexMut, Range, RangeBounds};
 use std::slice::{
     ChunkByMut, ChunksExactMut, ChunksMut, GetDisjointMutError, IterMut, RChunksExactMut, RChunksMut, RSplitMut,
-    RSplitNMut, SliceIndex, SplitInclusiveMut, SplitMut, SplitNMut,
+    RSplitNMut, SplitInclusiveMut, SplitMut, SplitNMut,
 };
 
 use crate::general::{Unsize, UnsizeObserver};
 use crate::helper::macros::delegate_methods;
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
 use crate::impls::slices::helper::{GetDisjointMutIndexImpl, SliceIndexImpl};
+use crate::impls::slices::range_set::RangeSet;
 use crate::impls::vec::VecObserverState;
 use crate::observe::{DefaultSpec, Observer, RefObserve, RefObserver, SerializeObserver};
 use crate::{Mutations, Observe};
@@ -32,10 +34,10 @@ pub trait SliceObserverState: Invalidate<Self::Target> + Sized {
     fn observe(slice: &mut Self::Target) -> Self;
 
     /// Ensures the observer(s) at `index` are initialized and returns a shared reference.
-    fn force_index<I: SliceIndexImpl>(&self, index: I, slice: &mut Self::Target) -> &I::Output<Self::Item>;
+    fn get<I: SliceIndexImpl>(&self, index: I, slice: &mut Self::Target) -> Option<&I::Output<Self::Item>>;
 
     /// Ensures the observer(s) at `index` are initialized and returns a mutable reference.
-    fn force_index_mut<I: SliceIndexImpl>(&mut self, index: I, slice: &mut Self::Target) -> &mut I::Output<Self::Item>;
+    fn get_mut<I: SliceIndexImpl>(&mut self, index: I, slice: &mut Self::Target) -> Option<&mut I::Output<Self::Item>>;
 }
 
 /// Shared-reference counterpart to [`SliceObserverState`] for element [`RefObserver`] management.
@@ -64,6 +66,76 @@ pub trait SliceSerializeObserverState<S: ?Sized, D>: Invalidate<Self::Target> {
     /// This method must fully reset all internal state so that an immediately subsequent call with
     /// no intervening mutations returns empty.
     fn flush(&mut self, ptr: &mut Pointer<S>) -> Mutations;
+}
+
+/// Lazily-initialized element observer storage backed by [`MaybeUninit`].
+///
+/// Only indices tracked by `initialized` contain valid observers. The `data` vector is always sized
+/// to match the observed slice length, with unaccessed slots left as [`MaybeUninit::uninit()`].
+pub(crate) struct LazyVec<O> {
+    pub data: Vec<MaybeUninit<O>>,
+    pub initialized: RangeSet,
+}
+
+impl<O> LazyVec<O> {
+    pub fn new() -> Self {
+        Self {
+            data: Vec::new(),
+            initialized: RangeSet::new(),
+        }
+    }
+
+    pub fn truncate(&mut self, new_len: usize) {
+        if new_len >= self.data.len() {
+            return;
+        }
+        for range in self.initialized.overlapping(&(new_len..self.data.len())) {
+            for i in range.start.max(new_len)..range.end {
+                unsafe { self.data[i].assume_init_drop() };
+            }
+        }
+        self.initialized.remove(new_len..self.data.len());
+        self.data.truncate(new_len);
+    }
+}
+
+impl<O> Drop for LazyVec<O> {
+    fn drop(&mut self) {
+        for range in self.initialized.iter() {
+            for i in range.clone() {
+                unsafe { self.data[i].assume_init_drop() };
+            }
+        }
+    }
+}
+
+impl<O> LazyVec<O>
+where
+    O: Observer<InnerDepth = Zero, Head: Sized>,
+{
+    pub fn relocate(&mut self, range: Range<usize>, slice: &mut [O::Head]) {
+        // Ensure data is sized to match the slice
+        if self.data.len() < slice.len() {
+            self.data.resize_with(slice.len(), MaybeUninit::uninit);
+        }
+        if self.data.len() > slice.len() {
+            self.truncate(slice.len());
+        }
+        if range.is_empty() {
+            return;
+        }
+        for gap in self.initialized.gaps(&range) {
+            for i in gap {
+                self.data[i] = MaybeUninit::new(O::observe(&mut slice[i]));
+            }
+        }
+        for existing in self.initialized.overlapping(&range) {
+            for i in existing.clone() {
+                unsafe { Observer::relocate(self.data[i].assume_init_mut(), &mut slice[i]) }
+            }
+        }
+        self.initialized.insert(range);
+    }
 }
 
 /// Observer implementation for slices `[T]`.
@@ -170,7 +242,7 @@ where
 {
     pub(crate) fn force_mut(&mut self) -> &mut [V::Item] {
         let slice = (*self.ptr).as_deref_mut();
-        self.state.force_index_mut(.., slice)
+        self.state.get_mut(.., slice).expect("index out of bounds")
     }
 
     fn nonempty_mut(&mut self) -> &mut [T] {
@@ -181,15 +253,61 @@ where
         }
     }
 
+    /// See [`slice::first_mut`].
+    pub fn first_mut(&mut self) -> Option<&mut V::Item> {
+        let slice = (*self.ptr).as_deref_mut();
+        self.state.get_mut(0usize, slice)
+    }
+
+    /// See [`slice::last_mut`].
+    pub fn last_mut(&mut self) -> Option<&mut V::Item> {
+        let slice = (*self.ptr).as_deref_mut();
+        let len = slice.as_ref().len();
+        if len == 0 {
+            None
+        } else {
+            self.state.get_mut(len - 1, slice)
+        }
+    }
+
+    /// See [`slice::first_chunk_mut`].
+    pub fn first_chunk_mut<const N: usize>(&mut self) -> Option<&mut [V::Item; N]> {
+        let slice = (*self.ptr).as_deref_mut();
+        self.state.get_mut(0..N, slice)?.try_into().ok()
+    }
+
     delegate_methods! { force_mut() as slice =>
-        pub fn first_mut(&mut self) -> Option<&mut V::Item>;
-        pub fn last_mut(&mut self) -> Option<&mut V::Item>;
-        pub fn first_chunk_mut<const N: usize>(&mut self) -> Option<&mut [V::Item; N]>;
         pub fn split_first_chunk_mut<const N: usize>(&mut self) -> Option<(&mut [V::Item; N], &mut [V::Item])>;
         pub fn split_last_chunk_mut<const N: usize>(&mut self) -> Option<(&mut [V::Item], &mut [V::Item; N])>;
-        pub fn last_chunk_mut<const N: usize>(&mut self) -> Option<&mut [V::Item; N]>;
-        pub fn get_mut<I>(&mut self, index: I) -> Option<&mut I::Output> where I: SliceIndex<[V::Item]>;
-        pub unsafe fn get_unchecked_mut<I>(&mut self, index: I) -> &mut I::Output where I: SliceIndex<[V::Item]>;
+    }
+
+    /// See [`slice::last_chunk_mut`].
+    pub fn last_chunk_mut<const N: usize>(&mut self) -> Option<&mut [V::Item; N]> {
+        let slice = (*self.ptr).as_deref_mut();
+        let len = slice.as_ref().len();
+        if len < N {
+            None
+        } else {
+            self.state.get_mut(len - N..len, slice)?.try_into().ok()
+        }
+    }
+
+    /// See [`slice::get_mut`].
+    pub fn get_mut<I: SliceIndexImpl>(&mut self, index: I) -> Option<&mut I::Output<V::Item>> {
+        let slice = (*self.ptr).as_deref_mut();
+        self.state.get_mut(index, slice)
+    }
+
+    /// See [`slice::get_unchecked_mut`].
+    ///
+    /// ## Safety
+    ///
+    /// See [`slice::get_unchecked_mut`] for safety requirements.
+    pub unsafe fn get_unchecked_mut<I: SliceIndexImpl>(&mut self, index: I) -> &mut I::Output<V::Item> {
+        unsafe { self.get_mut(index).unwrap_unchecked() }
+    }
+
+    delegate_methods! { force_mut() as slice =>
         pub fn as_mut_ptr(&mut self) -> *mut V::Item;
         pub fn as_mut_ptr_range(&mut self) -> Range<*mut V::Item>;
         #[rustversion::since(1.93)]
@@ -288,30 +406,6 @@ where
     }
 }
 
-macro_rules! generic_impl_partial_eq {
-    ($(impl $([$($gen:tt)*])? PartialEq<$ty:ty> for [_]);* $(;)?) => {
-        $(
-            impl<$($($gen)*,)? V, S: ?Sized, D> PartialEq<$ty> for SliceObserver<V, S, D>
-            where
-                D: Unsigned,
-                S: AsDeref<D, Target = V::Target>,
-                V: SliceObserverState,
-                V::Target: PartialEq<$ty>,
-            {
-                fn eq(&self, other: &$ty) -> bool {
-                    self.untracked_ref().eq(other)
-                }
-            }
-        )*
-    };
-}
-
-generic_impl_partial_eq! {
-    impl [U] PartialEq<[U]> for [_];
-    impl [U] PartialEq<Vec<U>> for [_];
-    impl [U, const N: usize] PartialEq<[U; N]> for [_];
-}
-
 impl<V1, V2, S1: ?Sized, S2: ?Sized, D1, D2> PartialEq<SliceObserver<V2, S2, D2>> for SliceObserver<V1, S1, D1>
 where
     D1: Unsigned,
@@ -334,18 +428,6 @@ where
     S: AsDeref<D, Target = V::Target>,
     V::Target: Eq,
 {
-}
-
-impl<V, S: ?Sized, D, U> PartialOrd<[U]> for SliceObserver<V, S, D>
-where
-    D: Unsigned,
-    V: SliceObserverState,
-    S: AsDeref<D, Target = V::Target>,
-    V::Target: PartialOrd<[U]>,
-{
-    fn partial_cmp(&self, other: &[U]) -> Option<std::cmp::Ordering> {
-        self.untracked_ref().partial_cmp(other)
-    }
 }
 
 impl<V1, V2, S1: ?Sized, S2: ?Sized, D1, D2> PartialOrd<SliceObserver<V2, S2, D2>> for SliceObserver<V1, S1, D1>
@@ -387,7 +469,7 @@ where
 
     fn index(&self, index: I) -> &Self::Output {
         let slice = unsafe { Pointer::as_mut(&self.ptr).as_deref_mut() };
-        self.state.force_index(index, slice)
+        self.state.get(index, slice).expect("index out of bounds")
     }
 }
 
@@ -402,7 +484,7 @@ where
 {
     fn index_mut(&mut self, index: I) -> &mut Self::Output {
         let slice = (*self.ptr).as_deref_mut();
-        self.state.force_index_mut(index, slice)
+        self.state.get_mut(index, slice).expect("index out of bounds")
     }
 }
 

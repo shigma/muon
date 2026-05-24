@@ -4,9 +4,9 @@ use std::slice::{GetDisjointMutError, SliceIndex};
 pub trait SliceIndexImpl {
     type Output<T>: ?Sized;
 
-    fn index<T>(self, slice: &[T]) -> &Self::Output<T>;
+    fn get<T>(self, slice: &[T]) -> Option<&Self::Output<T>>;
 
-    fn index_mut<T>(self, slice: &mut [T]) -> &mut Self::Output<T>;
+    fn get_mut<T>(self, slice: &mut [T]) -> Option<&mut Self::Output<T>>;
 
     fn to_range(&self, len: usize) -> Range<usize>;
 }
@@ -14,12 +14,12 @@ pub trait SliceIndexImpl {
 impl SliceIndexImpl for usize {
     type Output<T> = T;
 
-    fn index<T>(self, slice: &[T]) -> &Self::Output<T> {
-        &slice[self]
+    fn get<T>(self, slice: &[T]) -> Option<&Self::Output<T>> {
+        slice.get(self)
     }
 
-    fn index_mut<T>(self, slice: &mut [T]) -> &mut Self::Output<T> {
-        &mut slice[self]
+    fn get_mut<T>(self, slice: &mut [T]) -> Option<&mut Self::Output<T>> {
+        slice.get_mut(self)
     }
 
     fn to_range(&self, _len: usize) -> Range<usize> {
@@ -30,12 +30,12 @@ impl SliceIndexImpl for usize {
 impl SliceIndexImpl for Range<usize> {
     type Output<T> = [T];
 
-    fn index<T>(self, slice: &[T]) -> &Self::Output<T> {
-        &slice[self]
+    fn get<T>(self, slice: &[T]) -> Option<&Self::Output<T>> {
+        slice.get(self)
     }
 
-    fn index_mut<T>(self, slice: &mut [T]) -> &mut Self::Output<T> {
-        &mut slice[self]
+    fn get_mut<T>(self, slice: &mut [T]) -> Option<&mut Self::Output<T>> {
+        slice.get_mut(self)
     }
 
     fn to_range(&self, _len: usize) -> Range<usize> {
@@ -46,12 +46,12 @@ impl SliceIndexImpl for Range<usize> {
 impl SliceIndexImpl for RangeFrom<usize> {
     type Output<T> = [T];
 
-    fn index<T>(self, slice: &[T]) -> &Self::Output<T> {
-        &slice[self]
+    fn get<T>(self, slice: &[T]) -> Option<&Self::Output<T>> {
+        slice.get(self)
     }
 
-    fn index_mut<T>(self, slice: &mut [T]) -> &mut Self::Output<T> {
-        &mut slice[self]
+    fn get_mut<T>(self, slice: &mut [T]) -> Option<&mut Self::Output<T>> {
+        slice.get_mut(self)
     }
 
     fn to_range(&self, len: usize) -> Range<usize> {
@@ -62,12 +62,12 @@ impl SliceIndexImpl for RangeFrom<usize> {
 impl SliceIndexImpl for RangeTo<usize> {
     type Output<T> = [T];
 
-    fn index<T>(self, slice: &[T]) -> &Self::Output<T> {
-        &slice[self]
+    fn get<T>(self, slice: &[T]) -> Option<&Self::Output<T>> {
+        slice.get(self)
     }
 
-    fn index_mut<T>(self, slice: &mut [T]) -> &mut Self::Output<T> {
-        &mut slice[self]
+    fn get_mut<T>(self, slice: &mut [T]) -> Option<&mut Self::Output<T>> {
+        slice.get_mut(self)
     }
 
     fn to_range(&self, _len: usize) -> Range<usize> {
@@ -78,12 +78,12 @@ impl SliceIndexImpl for RangeTo<usize> {
 impl SliceIndexImpl for RangeFull {
     type Output<T> = [T];
 
-    fn index<T>(self, slice: &[T]) -> &Self::Output<T> {
-        slice
+    fn get<T>(self, slice: &[T]) -> Option<&Self::Output<T>> {
+        Some(slice)
     }
 
-    fn index_mut<T>(self, slice: &mut [T]) -> &mut Self::Output<T> {
-        slice
+    fn get_mut<T>(self, slice: &mut [T]) -> Option<&mut Self::Output<T>> {
+        Some(slice)
     }
 
     fn to_range(&self, len: usize) -> Range<usize> {
@@ -94,12 +94,12 @@ impl SliceIndexImpl for RangeFull {
 impl SliceIndexImpl for RangeInclusive<usize> {
     type Output<T> = [T];
 
-    fn index<T>(self, slice: &[T]) -> &Self::Output<T> {
-        &slice[self]
+    fn get<T>(self, slice: &[T]) -> Option<&Self::Output<T>> {
+        slice.get(self)
     }
 
-    fn index_mut<T>(self, slice: &mut [T]) -> &mut Self::Output<T> {
-        &mut slice[self]
+    fn get_mut<T>(self, slice: &mut [T]) -> Option<&mut Self::Output<T>> {
+        slice.get_mut(self)
     }
 
     fn to_range(&self, _len: usize) -> Range<usize> {
@@ -110,12 +110,12 @@ impl SliceIndexImpl for RangeInclusive<usize> {
 impl SliceIndexImpl for RangeToInclusive<usize> {
     type Output<T> = [T];
 
-    fn index<T>(self, slice: &[T]) -> &Self::Output<T> {
-        &slice[self]
+    fn get<T>(self, slice: &[T]) -> Option<&Self::Output<T>> {
+        slice.get(self)
     }
 
-    fn index_mut<T>(self, slice: &mut [T]) -> &mut Self::Output<T> {
-        &mut slice[self]
+    fn get_mut<T>(self, slice: &mut [T]) -> Option<&mut Self::Output<T>> {
+        slice.get_mut(self)
     }
 
     fn to_range(&self, _len: usize) -> Range<usize> {

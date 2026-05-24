@@ -5,7 +5,7 @@ use std::collections::TryReserveError;
 use std::fmt::Debug;
 use std::io::Write;
 use std::mem::MaybeUninit;
-use std::ops::{Bound, Deref, DerefMut, Index, IndexMut, Range, RangeBounds};
+use std::ops::{Bound, Deref, DerefMut, Index, IndexMut, RangeBounds};
 use std::vec::{Drain, ExtractIf, Splice};
 
 use serde::Serialize;
@@ -13,62 +13,10 @@ use serde::Serialize;
 use crate::general::Snapshot;
 use crate::helper::macros::{default_impl_ref_observe, delegate_methods};
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
-use crate::impls::slice::{SliceObserver, SliceObserverState, SliceSerializeObserverState};
+use crate::impls::slice::{LazyVec, SliceObserver, SliceObserverState, SliceSerializeObserverState};
 use crate::impls::slices::helper::SliceIndexImpl;
-use crate::impls::slices::range_set::RangeSet;
 use crate::observe::{DefaultSpec, Observer, SerializeObserver};
 use crate::{MutationKind, Mutations, Observe, PathSegment};
-
-/// Lazily-initialized element observer storage backed by `MaybeUninit`.
-///
-/// Only indices tracked by `initialized` contain valid observers. The `data` vector is always sized
-/// to match the observed slice length, with unaccessed slots left as `MaybeUninit::uninit()`.
-struct LazyVec<O> {
-    data: Vec<MaybeUninit<O>>,
-    initialized: RangeSet,
-}
-
-impl<O> LazyVec<O> {
-    fn new() -> Self {
-        Self {
-            data: Vec::new(),
-            initialized: RangeSet::new(),
-        }
-    }
-
-    fn clear(&mut self) {
-        for range in self.initialized.iter() {
-            for i in range.clone() {
-                unsafe { self.data[i].assume_init_drop() };
-            }
-        }
-        self.initialized.clear();
-        self.data.clear();
-    }
-
-    fn truncate(&mut self, new_len: usize) {
-        if new_len >= self.data.len() {
-            return;
-        }
-        for range in self.initialized.overlapping(&(new_len..self.data.len())) {
-            for i in range.start.max(new_len)..range.end {
-                unsafe { self.data[i].assume_init_drop() };
-            }
-        }
-        self.initialized.remove(new_len..self.data.len());
-        self.data.truncate(new_len);
-    }
-}
-
-impl<O> Drop for LazyVec<O> {
-    fn drop(&mut self) {
-        for range in self.initialized.iter() {
-            for i in range.clone() {
-                unsafe { self.data[i].assume_init_drop() };
-            }
-        }
-    }
-}
 
 /// Observer state for dynamically-sized slices ([`Vec<T>`], [`Box<[T]>`](Box)), tracking
 /// [`Append`](MutationKind::Append) and [`Truncate`](MutationKind::Truncate) boundaries.
@@ -116,7 +64,6 @@ impl<O> VecObserverState<O> {
     }
 
     fn mark_replace(&mut self) {
-        self.inner.get_mut().clear();
         self.mark_truncate(0);
     }
 }
@@ -127,36 +74,6 @@ where
 {
     fn invalidate(&mut self, _: &[O::Head]) {
         self.mark_replace();
-    }
-}
-
-impl<O> VecObserverState<O>
-where
-    O: Observer<InnerDepth = Zero, Head: Sized>,
-{
-    fn relocate(&self, range: Range<usize>, slice: &mut [O::Head]) {
-        let inner = unsafe { &mut *self.inner.get() };
-        // Ensure data is sized to match the slice
-        if inner.data.len() < slice.len() {
-            inner.data.resize_with(slice.len(), MaybeUninit::uninit);
-        }
-        if inner.data.len() > slice.len() {
-            inner.truncate(slice.len());
-        }
-        if range.is_empty() {
-            return;
-        }
-        for gap in inner.initialized.gaps(&range) {
-            for i in gap {
-                inner.data[i] = MaybeUninit::new(O::observe(&mut slice[i]));
-            }
-        }
-        for existing in inner.initialized.overlapping(&range) {
-            for i in existing.clone() {
-                unsafe { Observer::relocate(inner.data[i].assume_init_mut(), &mut slice[i]) }
-            }
-        }
-        inner.initialized.insert(range);
     }
 }
 
@@ -175,20 +92,20 @@ where
         }
     }
 
-    fn force_index<I: SliceIndexImpl>(&self, index: I, slice: &mut Self::Target) -> &I::Output<O> {
+    fn get<I: SliceIndexImpl>(&self, index: I, slice: &mut Self::Target) -> Option<&I::Output<O>> {
         let range = index.to_range(slice.as_ref().len());
-        self.relocate(range, slice);
-        let inner = unsafe { &*self.inner.get() };
-        let output = index.index(&inner.data);
-        unsafe { std::mem::transmute_copy(&output) }
+        let inner = unsafe { &mut *self.inner.get() };
+        inner.relocate(range, slice);
+        let output = index.get(&inner.data)?;
+        Some(unsafe { std::mem::transmute_copy(&output) })
     }
 
-    fn force_index_mut<I: SliceIndexImpl>(&mut self, index: I, slice: &mut Self::Target) -> &mut I::Output<O> {
+    fn get_mut<I: SliceIndexImpl>(&mut self, index: I, slice: &mut Self::Target) -> Option<&mut I::Output<O>> {
         let range = index.to_range(slice.as_ref().len());
-        self.relocate(range, slice);
         let inner = self.inner.get_mut();
-        let output = index.index_mut(&mut inner.data);
-        unsafe { std::mem::transmute_copy(&output) }
+        inner.relocate(range, slice);
+        let output = index.get_mut(&mut inner.data)?;
+        Some(unsafe { std::mem::transmute_copy(&output) })
     }
 }
 
@@ -209,7 +126,7 @@ where
         if cfg!(not(feature = "truncate")) && truncate_len > 0
             || cfg!(not(feature = "append")) && slice.len() > append_index
         {
-            self.inner.get_mut().clear();
+            self.inner.get_mut().truncate(0);
             return Mutations::replace(slice);
         }
 
