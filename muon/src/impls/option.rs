@@ -7,7 +7,7 @@ use serde::Serialize;
 use crate::Mutations;
 use crate::general::Snapshot;
 use crate::helper::macros::{spec_impl_observe, spec_impl_ref_observe};
-use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
+use crate::helper::{AsDeref, AsDerefMut, AsDerefPtrExt, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
 use crate::observe::{Observer, RefObserver, SerializeObserver};
 
 struct OptionObserverState<O> {
@@ -86,10 +86,17 @@ where
     }
 
     unsafe fn relocate(this: &mut Self, head: *mut Self::Head) {
-        if let (Some(inner), Some(value)) = (&mut this.state.inner, unsafe { (&mut *head).as_deref_mut().as_mut() }) {
-            unsafe { O::relocate(inner, value) }
+        unsafe {
+            let target = head.as_deref_ptr::<D>();
+            match (&mut this.state.inner, &*target) {
+                (Some(o), Some(v)) => {
+                    O::relocate(o, target.with_addr(v as *const _ as usize).cast());
+                }
+                (None, _) => {}
+                _ => panic!("inconsistent state for OptionObserver"),
+            }
+            Pointer::set_unchecked(this, head);
         }
-        unsafe { Pointer::set_unchecked(this, head) };
     }
 }
 
@@ -115,9 +122,16 @@ where
     }
 
     unsafe fn relocate(this: &mut Self, head: *const Self::Head) {
-        unsafe { Pointer::set_unchecked(this, head) };
-        if let (Some(inner), Some(value)) = (&mut this.state.inner, unsafe { (&*head).as_deref().as_ref() }) {
-            unsafe { O::relocate(inner, value) }
+        unsafe {
+            Pointer::set_unchecked(this, head);
+            let target = head.as_deref_ptr::<D>();
+            match (&mut this.state.inner, &*target) {
+                (Some(o), Some(v)) => {
+                    O::relocate(o, target.with_addr(v as *const _ as usize).cast());
+                }
+                (None, _) => {}
+                _ => panic!("inconsistent state for OptionObserver"),
+            }
         }
     }
 }
@@ -418,13 +432,27 @@ mod tests {
     }
 
     #[test]
-    fn relocate() {
-        let mut vec = vec![None::<i32>];
+    fn relocate_provenance_mut() {
+        let mut vec: Vec<Option<&str>> = vec![Some("hello")];
         let mut ob = vec.__observe();
-        *ob[0].tracked_mut() = Some(1);
-        ob.reserve(10); // force reallocation
-        assert_eq!(*ob[0].untracked_ref(), Some(1));
+        *ob[0].tracked_mut() = Some("world");
+        ob.reserve(10); // force reallocation, triggers relocate
+        *ob[0].tracked_mut() = Some("after");
+        assert_eq!(*ob[0].untracked_ref(), Some("after"));
         let Json(mutation) = ob.flush().unwrap();
-        assert_eq!(mutation, Some(replace!(_, json!([1]))));
+        assert_eq!(mutation, Some(replace!(_, json!(["after"]))));
+    }
+
+    #[test]
+    fn relocate_provenance_ref() {
+        let mut vec = vec![Some(String::from("hello"))];
+        let mut ob = vec.__observe();
+        // Access element to create inner OptionObserver with inner StringObserver
+        assert_eq!(*ob[0].untracked_ref(), Some(String::from("hello")));
+        // Flush relocates the OptionObserver with a shared-provenance pointer
+        // (VecObserverState::flush uses slice.iter() + cast to *mut).
+        // This would fail under Miri if relocate used .as_deref_mut() internally.
+        let Json(mutation) = ob.flush().unwrap();
+        assert_eq!(mutation, None);
     }
 }

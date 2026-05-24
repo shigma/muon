@@ -164,7 +164,10 @@ pub fn derive_observe_for_enum(
                 #(#if_named #field_ident:)* ::muon::observe::Observer::observe(#observe_ident),
             });
             relocate_stmts.extend(quote_spanned! { field_span =>
-                ::muon::observe::Observer::relocate(#ob_ident, #value_ident);
+                ::muon::observe::Observer::relocate(
+                    #ob_ident,
+                    __ptr.with_addr(#value_ident as *const _ as usize).cast(),
+                );
             });
 
             let mutation_ident;
@@ -251,7 +254,7 @@ pub fn derive_observe_for_enum(
             quote! {{
                 #flush_field_stmts
                 if #(#mutation_idents.is_replace())&&* {
-                    return ::muon::Mutations::replace(unsafe { &*__value });
+                    return ::muon::Mutations::replace(unsafe { &*__ptr });
                 }
                 let mut mutations = ::muon::Mutations::new().with_capacity(#(#flush_capacity)+*);
                 #flush_mutation_stmts
@@ -477,16 +480,16 @@ pub fn derive_observe_for_enum(
                 }
             }
 
-            unsafe fn relocate(&mut self, value: &mut #input_ident #input_type_generics) {
+            unsafe fn relocate(&mut self, __ptr: *mut #input_ident #input_type_generics) {
                 unsafe {
-                    match (self, value) {
+                    match (self, &*__ptr) {
                         #variant_relocate_arms
                         _ => panic!(#inconsistent_state),
                     }
                 }
             }
 
-            fn flush(&mut self, __value: *const #input_ident #input_type_generics) -> ::muon::Mutations
+            fn flush(&mut self, __ptr: *const #input_ident #input_type_generics) -> ::muon::Mutations
             where
                 #input_serialize_predicates
                 #(#ob_field_tys: ::muon::observe::SerializeObserver,)*
@@ -496,7 +499,7 @@ pub fn derive_observe_for_enum(
                 }
             }
 
-            fn flat_flush(&mut self, __value: *const #input_ident #input_type_generics) -> ::muon::Mutations
+            fn flat_flush(&mut self, __ptr: *const #input_ident #input_type_generics) -> ::muon::Mutations
             where
                 #input_serialize_predicates
                 #(#ob_field_tys: ::muon::observe::SerializeObserver,)*
@@ -599,8 +602,8 @@ pub fn derive_observe_for_enum(
 
             unsafe fn relocate(this: &mut Self, head: *mut #head) {
                 #(#if_has_variant
-                    let __value = unsafe { (&mut *head).as_deref_mut() };
-                    unsafe { this.variant.relocate(__value) }
+                    let __ptr = unsafe { ::muon::helper::AsDerefPtrExt::as_deref_ptr::<#depth>(head) };
+                    unsafe { this.variant.relocate(__ptr) }
                 )*
                 unsafe { ::muon::helper::Pointer::set_unchecked(this, head) };
             }

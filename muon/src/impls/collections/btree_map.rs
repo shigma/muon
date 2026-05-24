@@ -211,7 +211,7 @@ where
 impl<K, O, S: ?Sized, D> BTreeMapObserver<K, O, S, D>
 where
     D: Unsigned,
-    S: AsDerefMut<D, Target = BTreeMap<K, O::Head>>,
+    S: AsDeref<D, Target = BTreeMap<K, O::Head>>,
     O: Observer<InnerDepth = Zero> + SerializeObserver,
     O::Head: Serialize + Sized + 'static,
     K: Serialize + Clone + Ord + Into<PathSegment> + 'static,
@@ -239,11 +239,11 @@ where
             }
         }
         for (key, mut ob) in inner {
-            let value = self
-                .untracked_mut()
-                .get_mut(&key)
+            let value = (*self)
+                .untracked_ref()
+                .get(&key)
                 .expect("observer key not found in observed map");
-            unsafe { O::relocate(&mut ob, value) }
+            unsafe { O::relocate(&mut ob, value as *const O::Head as *mut O::Head) }
             mutations.insert(key, unsafe { O::flush(&mut ob) });
         }
         mutations
@@ -253,7 +253,7 @@ where
 impl<K, O, S: ?Sized, D> SerializeObserver for BTreeMapObserver<K, O, S, D>
 where
     D: Unsigned,
-    S: AsDerefMut<D, Target = BTreeMap<K, O::Head>>,
+    S: AsDeref<D, Target = BTreeMap<K, O::Head>>,
     O: Observer<InnerDepth = Zero> + SerializeObserver,
     O::Head: Serialize + Sized + 'static,
     K: Serialize + Clone + Ord + Into<PathSegment> + 'static,

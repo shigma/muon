@@ -90,26 +90,35 @@ const _: () = {
                 _ => Self::__Unknown,
             }
         }
-        unsafe fn relocate(&mut self, value: &mut Foo<S, T, U>) {
+        unsafe fn relocate(&mut self, __ptr: *mut Foo<S, T, U>) {
             unsafe {
-                match (self, value) {
+                match (self, &*__ptr) {
                     (Self::A(u0), Foo::A(v0)) => {
                         ::muon::helper::Pointer::set(u0, v0);
                     }
                     (Self::B(u0, u1), Foo::B(v0, v1)) => {
-                        ::muon::observe::Observer::relocate(u0, v0);
-                        ::muon::observe::Observer::relocate(u1, v1);
+                        ::muon::observe::Observer::relocate(
+                            u0,
+                            __ptr.with_addr(v0 as *const _ as usize).cast(),
+                        );
+                        ::muon::observe::Observer::relocate(
+                            u1,
+                            __ptr.with_addr(v1 as *const _ as usize).cast(),
+                        );
                     }
                     (Self::C { bar: u0, qux: u1 }, Foo::C { bar: v0, qux: v1 }) => {
                         ::muon::helper::Pointer::set(u0, v0);
-                        ::muon::observe::Observer::relocate(u1, v1);
+                        ::muon::observe::Observer::relocate(
+                            u1,
+                            __ptr.with_addr(v1 as *const _ as usize).cast(),
+                        );
                     }
                     (Self::__Unknown, _) => {}
                     _ => panic!("inconsistent state for FooObserver"),
                 }
             }
         }
-        fn flush(&mut self, __value: *const Foo<S, T, U>) -> ::muon::Mutations
+        fn flush(&mut self, __ptr: *const Foo<S, T, U>) -> ::muon::Mutations
         where
             Foo<S, T, U>: ::muon::helper::serde::Serialize + 'static,
             ::muon::observe::DefaultObserver<'ob, U>: ::muon::observe::SerializeObserver,
@@ -124,7 +133,7 @@ const _: () = {
                         ::muon::observe::SerializeObserver::flush(u1)
                     };
                     if mutations_0.is_replace() && mutations_1.is_replace() {
-                        return ::muon::Mutations::replace(unsafe { &*__value });
+                        return ::muon::Mutations::replace(unsafe { &*__ptr });
                     }
                     let mut mutations = ::muon::Mutations::new()
                         .with_capacity(
@@ -140,7 +149,7 @@ const _: () = {
                         ::muon::observe::SerializeObserver::flush(qux)
                     };
                     if mutations_qux.is_replace() {
-                        return ::muon::Mutations::replace(unsafe { &*__value });
+                        return ::muon::Mutations::replace(unsafe { &*__ptr });
                     }
                     let mut mutations = ::muon::Mutations::new()
                         .with_capacity(!mutations_qux.is_empty() as usize);
@@ -150,7 +159,7 @@ const _: () = {
                 Self::__Unknown => ::muon::Mutations::new(),
             }
         }
-        fn flat_flush(&mut self, __value: *const Foo<S, T, U>) -> ::muon::Mutations
+        fn flat_flush(&mut self, __ptr: *const Foo<S, T, U>) -> ::muon::Mutations
         where
             Foo<S, T, U>: ::muon::helper::serde::Serialize + 'static,
             ::muon::observe::DefaultObserver<'ob, U>: ::muon::observe::SerializeObserver,
@@ -235,8 +244,10 @@ const _: () = {
             }
         }
         unsafe fn relocate(this: &mut Self, head: *mut _S) {
-            let __value = unsafe { (&mut *head).as_deref_mut() };
-            unsafe { this.variant.relocate(__value) }
+            let __ptr = unsafe {
+                ::muon::helper::AsDerefPtrExt::as_deref_ptr::<N>(head)
+            };
+            unsafe { this.variant.relocate(__ptr) }
             unsafe { ::muon::helper::Pointer::set_unchecked(this, head) };
         }
     }

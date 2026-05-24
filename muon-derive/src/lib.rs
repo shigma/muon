@@ -24,10 +24,8 @@ mod observe;
 /// a `#[derive(Observe)]` struct:
 ///
 /// - `#[muon(noop)]` — use [`NoopObserver`](muon::observe::NoopObserver) for this field
-/// - `#[muon(shallow)]` — use [`ShallowObserver`](muon::observe::ShallowObserver) for this
-///   field
-/// - `#[muon(snapshot)]` — use [`SnapshotObserver`](muon::observe::SnapshotObserver) for this
-///   field
+/// - `#[muon(shallow)]` — use [`ShallowObserver`](muon::observe::ShallowObserver) for this field
+/// - `#[muon(snapshot)]` — use [`SnapshotObserver`](muon::observe::SnapshotObserver) for this field
 ///
 /// These attributes allow you to override the default [`Observer`](muon::observe::Observer) type
 /// that would otherwise come from the field's [`Observe`](muon::Observe) implementation.

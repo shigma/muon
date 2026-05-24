@@ -207,7 +207,7 @@ where
 impl<K, O, S: ?Sized, D> IndexMapObserver<K, O, S, D>
 where
     D: Unsigned,
-    S: AsDerefMut<D, Target = IndexMap<K, O::Head>>,
+    S: AsDeref<D, Target = IndexMap<K, O::Head>>,
     O: Observer<InnerDepth = Zero> + SerializeObserver,
     O::Head: Serialize + Sized + 'static,
     K: Serialize + Clone + Eq + Hash + Into<PathSegment> + 'static,
@@ -235,11 +235,11 @@ where
             }
         }
         for (key, mut ob) in inner {
-            let value = self
-                .untracked_mut()
-                .get_mut(&key)
+            let value = (*self)
+                .untracked_ref()
+                .get(&key)
                 .expect("observer key not found in observed map");
-            unsafe { O::relocate(&mut ob, value) }
+            unsafe { O::relocate(&mut ob, value as *const O::Head as *mut O::Head) }
             mutations.insert(key, unsafe { O::flush(&mut ob) });
         }
         mutations
@@ -249,7 +249,7 @@ where
 impl<K, O, S: ?Sized, D> SerializeObserver for IndexMapObserver<K, O, S, D>
 where
     D: Unsigned,
-    S: AsDerefMut<D, Target = IndexMap<K, O::Head>>,
+    S: AsDeref<D, Target = IndexMap<K, O::Head>>,
     O: Observer<InnerDepth = Zero> + SerializeObserver,
     O::Head: Serialize + Sized + 'static,
     K: Serialize + Clone + Eq + Hash + Into<PathSegment> + 'static,

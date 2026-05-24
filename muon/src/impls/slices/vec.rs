@@ -112,14 +112,14 @@ where
 impl<O, S, D> SliceSerializeObserverState<S, D> for VecObserverState<O>
 where
     D: Unsigned,
-    S: AsDerefMut<D, Target = [O::Head]> + ?Sized,
+    S: AsDeref<D, Target = [O::Head]> + ?Sized,
     O: Observer<InnerDepth = Zero> + SerializeObserver,
     O::Head: Serialize + Sized + 'static,
 {
     type Target = [O::Head];
 
     fn flush(&mut self, ptr: &mut Pointer<S>) -> Mutations {
-        let slice = (**ptr).as_deref_mut();
+        let slice = (**ptr).as_deref();
         let append_index = core::mem::replace(&mut self.append_index, slice.len());
         let truncate_len = core::mem::replace(&mut self.truncate_len, 0);
 
@@ -130,13 +130,13 @@ where
             return Mutations::replace(slice);
         }
 
-        // Phase 1: Relocate initialized observers (all &mut slice[i] happens here).
+        // Phase 1: Relocate initialized observers.
         let inner = self.inner.get_mut();
         let has_gaps = inner.initialized.gaps(&(0..append_index)).next().is_some();
         for range in inner.initialized.overlapping(&(0..append_index)) {
             let end = range.end.min(append_index);
-            for (i, head) in slice.iter_mut().enumerate().skip(range.start).take(end - range.start) {
-                unsafe { Observer::relocate(inner.data[i].assume_init_mut(), head) };
+            for (i, head) in slice.iter().enumerate().skip(range.start).take(end - range.start) {
+                unsafe { Observer::relocate(inner.data[i].assume_init_mut(), head as *const O::Head as *mut O::Head) };
             }
         }
 
@@ -221,7 +221,7 @@ where
 impl<O, S: ?Sized, D, T> SerializeObserver for VecObserver<O, S, D>
 where
     D: Unsigned,
-    S: AsDerefMut<D, Target = Vec<T>>,
+    S: AsDeref<D, Target = Vec<T>>,
     O: Observer<InnerDepth = Zero, Head = T> + SerializeObserver,
     T: Serialize + 'static,
 {

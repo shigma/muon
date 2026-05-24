@@ -138,10 +138,10 @@ where
     D: Unsigned,
     O: Observer<InnerDepth = Zero, Head: Sized> + SerializeObserver,
     O::Head: Serialize + 'static,
-    S: AsDerefMut<D, Target = LinkedList<O::Head>>,
+    S: AsDeref<D, Target = LinkedList<O::Head>>,
 {
     unsafe fn flush(this: &mut Self) -> Mutations {
-        let list = (*this.ptr).as_deref_mut();
+        let list = (*this.ptr).as_deref();
         let len = list.len();
         let front_append = core::mem::replace(&mut this.state.front.append_len, 0);
         let front_truncate = core::mem::replace(&mut this.state.front.truncate_len, 0);

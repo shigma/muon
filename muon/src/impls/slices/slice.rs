@@ -60,6 +60,7 @@ pub trait SliceRefObserverState: Invalidate<Self::Target> + Sized {
 pub trait SliceSerializeObserverState<S: ?Sized, D>: Invalidate<Self::Target> {
     /// The slice-like type being observed.
     type Target: ?Sized;
+
     /// Consumes the accumulated mutation state, flushes inner element observers, and returns the
     /// collected [`Mutations`].
     ///

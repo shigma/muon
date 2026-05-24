@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use std::ops::{AddAssign, Deref, DerefMut};
 
 use crate::general::Snapshot;
-use crate::helper::{AsDeref, AsDerefMut, Pointer, QuasiObserver, Succ, Unsigned, Zero};
+use crate::helper::{AsDeref, AsDerefMut, AsDerefPtrExt, Pointer, QuasiObserver, Succ, Unsigned, Zero};
 use crate::impls::{DerefObserver, StringObserver};
 use crate::observe::{DefaultSpec, Observer, RefObserve, RefObserver, SerializeObserver};
 use crate::{Mutations, Observe};
@@ -75,13 +75,15 @@ where
     unsafe fn relocate(this: &mut Self, head: *mut Self::Head) {
         unsafe { B::relocate(&mut this.inner, head) }
         if let Some(owned) = &mut this.owned {
-            match unsafe { AsDerefMut::<D>::as_deref_mut(&mut *head) } {
+            let target = unsafe { head.as_deref_ptr::<D>() };
+            match unsafe { &*target } {
                 Cow::Borrowed(_) => panic!("inconsistent state for CowObserver"),
-                Cow::Owned(value) => unsafe { O::relocate(owned, value) },
+                Cow::Owned(value) => {
+                    unsafe { O::relocate(owned, target.with_addr(value as *const _ as usize).cast()) };
+                }
             }
         }
-        // Re-expose with mutable provenance (see observe for rationale).
-        Pointer::set(this.inner.as_deref_coinductive(), unsafe { &mut *head });
+        unsafe { Pointer::set_unchecked(this.inner.as_deref_coinductive(), head) };
     }
 }
 
@@ -459,5 +461,28 @@ mod tests {
         ob += "c";
         let Json(mutation) = ob.flush().unwrap();
         assert_eq!(mutation, Some(append!(_, json!("bc"))));
+    }
+
+    #[test]
+    fn relocate_provenance_mut() {
+        let mut cow: Cow<'_, str> = Cow::Owned(String::from("hello"));
+        let mut ob = cow.__observe();
+        let mut new_cow: Cow<'_, str> = Cow::Owned(String::from("world"));
+        unsafe { Observer::relocate(&mut ob, &mut new_cow) };
+        *ob.tracked_mut() = Cow::Borrowed("replaced");
+        assert_eq!(*ob.untracked_ref(), "replaced");
+    }
+
+    #[test]
+    fn relocate_provenance_ref() {
+        use std::collections::BTreeMap;
+        let mut map = BTreeMap::from([(String::from("a"), Cow::<str>::Owned(String::from("hello")))]);
+        let mut ob = map.__observe();
+        // to_mut() creates the inner owned StringObserver
+        ob.get_mut("a").unwrap().to_mut();
+        // Flush: partial_flush relocates the CowObserver with a shared-provenance pointer.
+        // This would fail under Miri if relocate used .as_deref_mut() internally.
+        let Json(mutation) = ob.flush().unwrap();
+        assert_eq!(mutation, None);
     }
 }

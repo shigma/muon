@@ -7,7 +7,7 @@ use serde::Serialize;
 use crate::Mutations;
 use crate::general::Snapshot;
 use crate::helper::macros::{spec_impl_observe, spec_impl_ref_observe};
-use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
+use crate::helper::{AsDeref, AsDerefMut, AsDerefPtrExt, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
 use crate::observe::{Observer, RefObserver, SerializeObserver};
 
 struct BoundObserverState<O> {
@@ -93,16 +93,20 @@ where
     }
 
     unsafe fn relocate(this: &mut Self, head: *mut Self::Head) {
-        let value = unsafe { (&mut *head).as_deref_mut() };
         unsafe {
-            match (&mut this.state.inner, value) {
-                (Bound::Included(o), Bound::Included(v)) => O::relocate(o, v),
-                (Bound::Excluded(o), Bound::Excluded(v)) => O::relocate(o, v),
+            let target = head.as_deref_ptr::<D>();
+            match (&mut this.state.inner, &*target) {
+                (Bound::Included(o), Bound::Included(v)) => {
+                    O::relocate(o, target.with_addr(v as *const _ as usize).cast());
+                }
+                (Bound::Excluded(o), Bound::Excluded(v)) => {
+                    O::relocate(o, target.with_addr(v as *const _ as usize).cast());
+                }
                 (Bound::Unbounded, _) => {}
                 _ => panic!("inconsistent state for BoundObserver"),
             }
+            Pointer::set_unchecked(this, head);
         }
-        unsafe { Pointer::set_unchecked(this, head) };
     }
 }
 
@@ -134,12 +138,16 @@ where
     }
 
     unsafe fn relocate(this: &mut Self, head: *const Self::Head) {
-        unsafe { Pointer::set_unchecked(this, head) };
-        let value = unsafe { (&*head).as_deref() };
         unsafe {
-            match (&mut this.state.inner, value) {
-                (Bound::Included(o), Bound::Included(v)) => O::relocate(o, v),
-                (Bound::Excluded(o), Bound::Excluded(v)) => O::relocate(o, v),
+            Pointer::set_unchecked(this, head);
+            let target = head.as_deref_ptr::<D>();
+            match (&mut this.state.inner, &*target) {
+                (Bound::Included(o), Bound::Included(v)) => {
+                    O::relocate(o, target.with_addr(v as *const _ as usize).cast());
+                }
+                (Bound::Excluded(o), Bound::Excluded(v)) => {
+                    O::relocate(o, target.with_addr(v as *const _ as usize).cast());
+                }
                 (Bound::Unbounded, _) => {}
                 _ => panic!("inconsistent state for BoundObserver"),
             }
@@ -344,13 +352,25 @@ mod tests {
     }
 
     #[test]
-    fn relocate() {
-        let mut vec = vec![Bound::Included(String::from("x"))];
+    fn relocate_provenance_mut() {
+        let mut vec = vec![Bound::Included(String::from("hello"))];
         let mut ob = vec.__observe();
-        *ob[0].tracked_mut() = Bound::Excluded(String::from("y"));
-        ob.reserve(10);
-        assert_eq!(*ob[0].untracked_ref(), Bound::Excluded(String::from("y")));
+        *ob[0].tracked_mut() = Bound::Excluded(String::from("world"));
+        ob.reserve(10); // force reallocation, triggers relocate
+        *ob[0].tracked_mut() = Bound::Included(String::from("after"));
         let Json(mutation) = ob.flush().unwrap();
-        assert_eq!(mutation, Some(replace!(_, json!([{"Excluded": "y"}]))));
+        assert_eq!(mutation, Some(replace!(_, json!([{"Included": "after"}]))));
+    }
+
+    #[test]
+    fn relocate_provenance_ref() {
+        let mut vec = vec![Bound::Included(String::from("hello"))];
+        let mut ob = vec.__observe();
+        // Access element to create inner BoundObserver with inner StringObserver
+        assert_eq!(*ob[0].untracked_ref(), Bound::Included(String::from("hello")));
+        // Flush relocates the BoundObserver with a shared-provenance pointer.
+        // This would fail under Miri if relocate used .as_deref_mut() internally.
+        let Json(mutation) = ob.flush().unwrap();
+        assert_eq!(mutation, None);
     }
 }

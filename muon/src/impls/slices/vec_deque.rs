@@ -10,6 +10,7 @@ use std::mem::MaybeUninit;
 use std::ops::{Bound, Deref, DerefMut, Index, IndexMut, Range, RangeBounds};
 
 use serde::Serialize;
+use serde::ser::SerializeSeq;
 
 use crate::helper::macros::{default_impl_ref_observe, delegate_methods};
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
@@ -232,22 +233,38 @@ where
     }
 }
 
+struct AppendTail<T> {
+    deque: *const VecDeque<T>,
+    skip: usize,
+}
+
+impl<T: Serialize> Serialize for AppendTail<T> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let deque = unsafe { &*self.deque };
+        let count = deque.len() - self.skip;
+        let mut seq = serializer.serialize_seq(Some(count))?;
+        for item in deque.iter().skip(self.skip) {
+            seq.serialize_element(item)?;
+        }
+        seq.end()
+    }
+}
+
 impl<'ob, O, S: ?Sized, D> SerializeObserver for VecDequeObserver<'ob, O, S, D>
 where
     D: Unsigned,
     O: Observer<InnerDepth = Zero, Head: Sized> + SerializeObserver,
     O::Head: Serialize + 'static,
-    S: AsDerefMut<D, Target = VecDeque<O::Head>>,
+    S: AsDeref<D, Target = VecDeque<O::Head>>,
 {
     unsafe fn flush(this: &mut Self) -> Mutations {
-        let deque = (*this.ptr).as_deref_mut();
+        let deque = (*this.ptr).as_deref();
         let len = deque.len();
         let front_prepend_len = core::mem::replace(&mut this.state.front_prepend_len, 0);
         let front_truncate_len = core::mem::replace(&mut this.state.front_truncate_len, 0);
         let back_append_len = core::mem::replace(&mut this.state.back_append_len, 0);
         let back_truncate_len = core::mem::replace(&mut this.state.back_truncate_len, 0);
 
-        let slice = deque.make_contiguous();
         let back_boundary = len - back_append_len;
 
         // unbalanced front / feature gate fallback
@@ -256,14 +273,24 @@ where
             || cfg!(not(feature = "append")) && back_append_len > 0
         {
             this.state.inner.get_mut().truncate(0);
-            return Mutations::replace(slice);
+            return Mutations::replace(deque);
         }
 
         // Phase 1: Relocate initialized observers in [prepend_len..back_boundary].
         let inner = this.state.inner.get_mut();
         let prepend_len = front_prepend_len.min(back_boundary);
         let existing_range = prepend_len..back_boundary;
-        inner.relocate(existing_range.clone(), &mut slice[..back_boundary]);
+        let key_range = inner.key_range(existing_range.clone());
+        let has_gaps = inner.initialized.gaps(&key_range).next().is_some();
+        for range in inner.initialized.overlapping(&key_range) {
+            let start = (range.start - inner.offset) as usize;
+            let end = (range.end - inner.offset) as usize;
+            #[expect(clippy::needless_range_loop)]
+            for i in start..end {
+                let head = &deque[i] as *const O::Head as *mut O::Head;
+                unsafe { Observer::relocate(inner.data[i].assume_init_mut(), head) };
+            }
+        }
 
         // Phase 2: Build Truncate/Append.
         let mut mutations = Mutations::new();
@@ -271,12 +298,13 @@ where
             mutations.extend(MutationKind::Truncate(back_truncate_len));
         }
         if back_append_len > 0 {
-            mutations.extend(Mutations::append(&slice[back_boundary..]));
+            mutations.extend(Mutations::append_owned(AppendTail {
+                deque: deque as *const _,
+                skip: back_boundary,
+            }));
         }
 
         // Phase 3: Flush initialized observers in [prepend_len..back_boundary].
-        let key_range = inner.key_range(existing_range.clone());
-        let has_gaps = inner.initialized.gaps(&key_range).next().is_some();
         let offset = inner.offset;
         let contiguous: *mut [MaybeUninit<O>] = inner.make_contiguous();
         let mut is_replace = !has_gaps;
@@ -292,12 +320,12 @@ where
         }
         if is_replace && (prepend_len > 0 || !mutations.is_empty()) {
             inner.truncate(0);
-            return Mutations::replace(slice);
+            return Mutations::replace(deque);
         }
 
         // Phase 4: Emit Replace for prepended elements.
         for i in (0..prepend_len).rev() {
-            mutations.insert(PathSegment::Negative(len - i), Mutations::replace(&slice[i]));
+            mutations.insert(PathSegment::Negative(len - i), Mutations::replace(&deque[i]));
         }
 
         // Reset inner state for next cycle.
