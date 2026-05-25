@@ -5,7 +5,7 @@ use std::ops::{Deref, DerefMut, Range, RangeFrom, RangeInclusive, RangeTo};
 use serde::Serialize;
 
 use crate::Mutations;
-use crate::general::Snapshot;
+use crate::general::{SerializeSnapshot, Snapshot};
 use crate::helper::macros::{spec_impl_observe, spec_impl_observe_from_ro, spec_impl_ro_observe};
 use crate::helper::{AsDeref, AsDerefMut, AsDerefPtrExt, Pointer, QuasiObserver, Succ, Unsigned, Zero};
 use crate::observe::{Observer, SerializeObserver};
@@ -173,9 +173,18 @@ macro_rules! impl_range {
                         $($field: self.$field.to_snapshot(),)*
                     }
                 }
+            }
 
-                fn eq_snapshot(&self, snapshot: &Self::Snapshot) -> bool {
-                    $(self.$field.eq_snapshot(&snapshot.$field))&&*
+            impl<T: SerializeSnapshot + 'static> SerializeSnapshot for $ty<T> {
+                fn flush(&self, snapshot: Self::Snapshot) -> Mutations {
+                    $(let $field = self.$field.flush(snapshot.$field).with_prefix(stringify!($field));)*
+                    if $($field.is_replace())&&* {
+                        Mutations::replace(self)
+                    } else {
+                        let mut mutations = Mutations::new();
+                        $(mutations.extend($field);)*
+                        mutations
+                    }
                 }
             }
         )*
@@ -361,9 +370,20 @@ impl<T: Snapshot> Snapshot for RangeInclusive<T> {
     fn to_snapshot(&self) -> Self::Snapshot {
         (self.start().to_snapshot(), self.end().to_snapshot())
     }
+}
 
-    fn eq_snapshot(&self, snapshot: &Self::Snapshot) -> bool {
-        self.start().eq_snapshot(&snapshot.0) && self.end().eq_snapshot(&snapshot.1)
+impl<T: SerializeSnapshot + 'static> SerializeSnapshot for RangeInclusive<T> {
+    fn flush(&self, snapshot: Self::Snapshot) -> Mutations {
+        let start = self.start().flush(snapshot.0).with_prefix("start");
+        let end = self.end().flush(snapshot.1).with_prefix("end");
+        if start.is_replace() && end.is_replace() {
+            Mutations::replace(self)
+        } else {
+            let mut mutations = Mutations::new();
+            mutations.extend(start);
+            mutations.extend(end);
+            mutations
+        }
     }
 }
 

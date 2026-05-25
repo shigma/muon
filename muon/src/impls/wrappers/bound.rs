@@ -5,7 +5,7 @@ use std::ops::{Bound, Deref, DerefMut};
 use serde::Serialize;
 
 use crate::Mutations;
-use crate::general::Snapshot;
+use crate::general::{SerializeSnapshot, Snapshot};
 use crate::helper::macros::{spec_impl_observe, spec_impl_ro_observe};
 use crate::helper::{AsDeref, AsDerefMut, AsDerefPtrExt, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
 use crate::observe::{Observer, SerializeObserver};
@@ -221,13 +221,15 @@ impl<T: Snapshot> Snapshot for Bound<T> {
             Bound::Unbounded => Bound::Unbounded,
         }
     }
+}
 
-    fn eq_snapshot(&self, snapshot: &Self::Snapshot) -> bool {
+impl<T: SerializeSnapshot + 'static> SerializeSnapshot for Bound<T> {
+    fn flush(&self, snapshot: Self::Snapshot) -> Mutations {
         match (self, snapshot) {
-            (Bound::Included(v), Bound::Included(s)) => v.eq_snapshot(s),
-            (Bound::Excluded(v), Bound::Excluded(s)) => v.eq_snapshot(s),
-            (Bound::Unbounded, Bound::Unbounded) => true,
-            _ => false,
+            (Bound::Included(v), Bound::Included(s)) => v.flush(s).with_prefix("Included"),
+            (Bound::Excluded(v), Bound::Excluded(s)) => v.flush(s).with_prefix("Excluded"),
+            (Bound::Unbounded, Bound::Unbounded) => Mutations::new(),
+            _ => Mutations::replace(self),
         }
     }
 }

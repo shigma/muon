@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 use std::ops::{Deref, DerefMut};
 
-use crate::general::Snapshot;
+use crate::general::{SerializeSnapshot, Snapshot};
 use crate::helper::{AsDeref, AsDerefMut, QuasiObserver, Succ, Unsigned};
 use crate::observe::{Observer, RoObserve, SerializeObserver};
 use crate::{Mutations, Observe};
@@ -199,10 +199,6 @@ macro_rules! impl_snapshot {
                 fn to_snapshot(&self) -> Self::Snapshot {
                     (**self).to_snapshot()
                 }
-
-                fn eq_snapshot(&self, snapshot: &Self::Snapshot) -> bool {
-                    (**self).eq_snapshot(snapshot)
-                }
             }
         )*
     };
@@ -214,6 +210,26 @@ impl_snapshot! {
     impl [T: Snapshot + ?Sized] Snapshot for Box<T> as T::Snapshot;
     impl [T: Snapshot + ?Sized] Snapshot for std::rc::Rc<T> as T::Snapshot;
     impl [T: Snapshot + ?Sized] Snapshot for std::sync::Arc<T> as T::Snapshot;
+}
+
+macro_rules! impl_serialize_snapshot {
+    ($(impl $([$($gen:tt)*])? SerializeSnapshot for $ty:ty;)*) => {
+        $(
+            impl <$($($gen)*)?> SerializeSnapshot for $ty {
+                fn flush(&self, snapshot: Self::Snapshot) -> Mutations {
+                    (**self).flush(snapshot)
+                }
+            }
+        )*
+    };
+}
+
+impl_serialize_snapshot! {
+    impl [T: SerializeSnapshot + ?Sized] SerializeSnapshot for &T;
+    impl [T: SerializeSnapshot + ?Sized] SerializeSnapshot for &mut T;
+    impl [T: SerializeSnapshot + ?Sized] SerializeSnapshot for Box<T>;
+    impl [T: SerializeSnapshot + ?Sized] SerializeSnapshot for std::rc::Rc<T>;
+    impl [T: SerializeSnapshot + ?Sized] SerializeSnapshot for std::sync::Arc<T>;
 }
 
 #[cfg(test)]

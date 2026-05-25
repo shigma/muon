@@ -5,13 +5,14 @@ use std::marker::PhantomData;
 use std::ops::{Index, IndexMut};
 use std::slice::SliceIndex;
 
-use crate::general::{Unsize, UnsizeObserver};
+use crate::general::{SerializeSnapshot, Snapshot, Unsize, UnsizeObserver};
 use crate::helper::macros::delegate_methods;
 use crate::helper::shallow::{ShallowDelegate, ShallowMut, shallow_observer};
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Unsigned, Zero};
 use crate::impls::strings::TruncateLen;
 use crate::impls::strings::string::StringObserverState;
 use crate::observe::{DefaultSpec, Observe, RoObserve};
+use crate::{MutationKind, Mutations};
 
 shallow_observer! {
     /// Observer implementation for [`str`].
@@ -211,6 +212,57 @@ impl RoObserve for str {
         S: AsDeref<D, Target = Self> + ?Sized + 'ob;
 
     type Spec = DefaultSpec;
+}
+
+impl Snapshot for str {
+    type Snapshot = Box<str>;
+
+    fn to_snapshot(&self) -> Box<str> {
+        self.into()
+    }
+}
+
+impl SerializeSnapshot for str {
+    fn flush(&self, snapshot: Box<str>) -> Mutations {
+        if self == &*snapshot {
+            return Mutations::new();
+        }
+        let prefix_len = common_prefix_len(self, &snapshot);
+        if prefix_len == 0 {
+            return Mutations::replace(self);
+        }
+        let mut mutations = Mutations::new();
+        let old_suffix = &snapshot[prefix_len..];
+        if !old_suffix.is_empty() {
+            #[cfg(feature = "truncate")]
+            mutations.extend(MutationKind::Truncate(old_suffix.truncate_len()));
+            #[cfg(not(feature = "truncate"))]
+            return Mutations::replace(self);
+        }
+        let new_suffix = &self[prefix_len..];
+        if !new_suffix.is_empty() {
+            #[cfg(feature = "append")]
+            mutations.extend(Mutations::append(new_suffix));
+            #[cfg(not(feature = "append"))]
+            return Mutations::replace(self);
+        }
+        mutations
+    }
+}
+
+fn common_prefix_len(a: &str, b: &str) -> usize {
+    let len = a
+        .as_bytes()
+        .iter()
+        .zip(b.as_bytes())
+        .take_while(|(x, y)| x == y)
+        .count();
+    // Adjust backward to a char boundary in both strings
+    let mut i = len;
+    while i > 0 && !a.is_char_boundary(i) {
+        i -= 1;
+    }
+    i
 }
 
 #[cfg(test)]

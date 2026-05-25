@@ -2,7 +2,7 @@ use std::borrow::Cow;
 use std::fmt::Debug;
 use std::ops::{AddAssign, Deref, DerefMut};
 
-use crate::general::Snapshot;
+use crate::general::{SerializeSnapshot, Snapshot};
 use crate::helper::{AsDeref, AsDerefMut, AsDerefPtrExt, Pointer, QuasiObserver, Succ, Unsigned, Zero};
 use crate::impls::{DerefObserver, StringObserver};
 use crate::observe::{DefaultSpec, Observer, RoObserve, SerializeObserver};
@@ -244,9 +244,14 @@ where
     fn to_snapshot(&self) -> Self::Snapshot {
         (**self).to_snapshot()
     }
+}
 
-    fn eq_snapshot(&self, snapshot: &Self::Snapshot) -> bool {
-        (**self).eq_snapshot(snapshot)
+impl<'a, T> SerializeSnapshot for Cow<'a, T>
+where
+    T: SerializeSnapshot + ToOwned + ?Sized,
+{
+    fn flush(&self, snapshot: Self::Snapshot) -> Mutations {
+        (**self).flush(snapshot)
     }
 }
 

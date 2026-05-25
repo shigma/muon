@@ -11,6 +11,7 @@ use super::TruncateLen;
 use super::os_str::OsStrObserver;
 use super::os_string::OsStringObserver;
 use super::path::PathObserver;
+use crate::general::{SerializeSnapshot, Snapshot};
 use crate::helper::macros::{default_impl_ro_observe, delegate_methods};
 use crate::helper::shallow::{ObserverState, SerializeObserverState, ShallowDelegate};
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
@@ -276,6 +277,20 @@ impl Observe for PathBuf {
 
 default_impl_ro_observe! {
     impl RoObserve for PathBuf;
+}
+
+impl Snapshot for PathBuf {
+    type Snapshot = Option<Box<str>>;
+
+    fn to_snapshot(&self) -> Option<Box<str>> {
+        self.as_path().to_snapshot()
+    }
+}
+
+impl SerializeSnapshot for PathBuf {
+    fn flush(&self, snapshot: Option<Box<str>>) -> Mutations {
+        self.as_path().flush(snapshot)
+    }
 }
 
 #[cfg(test)]

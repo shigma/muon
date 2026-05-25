@@ -5,7 +5,7 @@ use std::num::{Saturating, Wrapping};
 use std::ops::{Deref, DerefMut};
 
 use crate::Mutations;
-use crate::general::Snapshot;
+use crate::general::{SerializeSnapshot, Snapshot};
 use crate::helper::macros::{spec_impl_observe, spec_impl_ro_observe};
 use crate::helper::{AsDeref, AsDerefMut, AsDerefPtrExt, Pointer, QuasiObserver, Succ, Unsigned, Zero};
 use crate::observe::{Observer, SerializeObserver};
@@ -335,9 +335,11 @@ macro_rules! impl_newtype {
             fn to_snapshot(&self) -> Self::Snapshot {
                 self.0.to_snapshot()
             }
+        }
 
-            fn eq_snapshot(&self, snapshot: &Self::Snapshot) -> bool {
-                self.0.eq_snapshot(snapshot)
+        impl<T: SerializeSnapshot> SerializeSnapshot for $wrapper<T> {
+            fn flush(&self, snapshot: Self::Snapshot) -> Mutations {
+                self.0.flush(snapshot)
             }
         }
     };

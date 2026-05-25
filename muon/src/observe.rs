@@ -5,6 +5,8 @@
 //! mutation tracking primitives.
 
 pub use crate::general::snapshot::SnapshotSpec;
+use crate::general::snapshot::Snapshot;
+use crate::general::SnapshotObserver;
 use crate::helper::{AsDeref, AsDerefMut, Pointer, QuasiObserver, Unsigned, Zero};
 use crate::{Adapter, Mutations};
 
@@ -250,6 +252,9 @@ pub trait RoObserve {
 /// A type `T` implements [`RwObserve`] if it can be observed through interior mutability (e.g.,
 /// [`RefCell<T>`](std::cell::RefCell), [`Mutex<T>`](std::sync::Mutex)).
 ///
+/// A blanket implementation is provided for all types that implement [`Snapshot`], using
+/// [`SnapshotObserver`] as the observer.
+///
 /// See also: [`Observe`], [`RoObserve`].
 pub trait RwObserve {
     /// The default observer implementation for interior-mutable wrappers.
@@ -261,6 +266,17 @@ pub trait RwObserve {
 
     /// Marker type for selecting specialized observer implementations in wrapper types.
     type Spec;
+}
+
+impl<T: Snapshot + ?Sized> RwObserve for T {
+    type Observer<'ob, S, D>
+        = SnapshotObserver<'ob, S, D>
+    where
+        Self: 'ob,
+        D: Unsigned,
+        S: AsDeref<D, Target = Self> + ?Sized + 'ob;
+
+    type Spec = SnapshotSpec;
 }
 
 /// Extension trait providing ergonomic methods for types implementing [`Observe`].

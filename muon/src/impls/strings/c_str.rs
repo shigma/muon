@@ -1,9 +1,9 @@
 use std::ffi::CStr;
 
-use crate::Observe;
-use crate::general::{Unsize, UnsizeObserver};
+use crate::Mutations;
+use crate::general::{SerializeSnapshot, Snapshot, Unsize, UnsizeObserver};
 use crate::helper::{AsDeref, AsDerefMut, Unsigned};
-use crate::observe::{DefaultSpec, RoObserve};
+use crate::observe::{DefaultSpec, Observe, RoObserve};
 
 impl Unsize for CStr {
     type Slice = [u8];
@@ -41,4 +41,18 @@ impl RoObserve for CStr {
         S: AsDeref<D, Target = Self> + ?Sized + 'ob;
 
     type Spec = DefaultSpec;
+}
+
+impl Snapshot for CStr {
+    type Snapshot = Box<[u8]>;
+
+    fn to_snapshot(&self) -> Box<[u8]> {
+        self.to_bytes().into()
+    }
+}
+
+impl SerializeSnapshot for CStr {
+    fn flush(&self, snapshot: Box<[u8]>) -> Mutations {
+        self.to_bytes().flush(snapshot)
+    }
 }

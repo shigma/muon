@@ -5,7 +5,7 @@ use std::ops::{Deref, DerefMut};
 use serde::Serialize;
 
 use crate::Mutations;
-use crate::general::Snapshot;
+use crate::general::{SerializeSnapshot, Snapshot};
 use crate::helper::macros::{spec_impl_observe, spec_impl_ro_observe};
 use crate::helper::{AsDeref, AsDerefMut, AsDerefPtrExt, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
 use crate::observe::{Observer, SerializeObserver};
@@ -270,12 +270,14 @@ impl<T: Snapshot> Snapshot for Option<T> {
     fn to_snapshot(&self) -> Self::Snapshot {
         self.as_ref().map(|v| v.to_snapshot())
     }
+}
 
-    fn eq_snapshot(&self, snapshot: &Self::Snapshot) -> bool {
+impl<T: SerializeSnapshot + 'static> SerializeSnapshot for Option<T> {
+    fn flush(&self, snapshot: Self::Snapshot) -> Mutations {
         match (self, snapshot) {
-            (Some(v), Some(snapshot)) => v.eq_snapshot(snapshot),
-            (None, None) => true,
-            _ => false,
+            (Some(v), Some(s)) => v.flush(s),
+            (None, None) => Mutations::new(),
+            _ => Mutations::replace(self),
         }
     }
 }

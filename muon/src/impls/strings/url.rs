@@ -5,12 +5,13 @@ use std::net::IpAddr;
 
 use url::{ParseError, Url};
 
-use crate::Observe;
+use crate::Mutations;
+use crate::general::{SerializeSnapshot, Snapshot};
 use crate::helper::macros::default_impl_ro_observe;
 use crate::helper::shallow::shallow_observer;
 use crate::helper::{AsDeref, AsDerefMut, QuasiObserver, Unsigned};
 use crate::impls::strings::string::StringObserverState;
-use crate::observe::DefaultSpec;
+use crate::observe::{DefaultSpec, Observe};
 
 shallow_observer! {
     /// Observer implementation for [`Url`].
@@ -138,6 +139,20 @@ impl Observe for Url {
 
 default_impl_ro_observe! {
     impl RoObserve for Url;
+}
+
+impl Snapshot for Url {
+    type Snapshot = Box<str>;
+
+    fn to_snapshot(&self) -> Box<str> {
+        self.as_str().to_snapshot()
+    }
+}
+
+impl SerializeSnapshot for Url {
+    fn flush(&self, snapshot: Box<str>) -> Mutations {
+        self.as_str().flush(snapshot)
+    }
 }
 
 #[cfg(test)]

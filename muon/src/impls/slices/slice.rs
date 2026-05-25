@@ -10,7 +10,7 @@ use std::slice::{
     RSplitNMut, SplitInclusiveMut, SplitMut, SplitNMut,
 };
 
-use crate::general::{Unsize, UnsizeObserver};
+use crate::general::{SerializeSnapshot, Snapshot, Unsize, UnsizeObserver};
 use crate::helper::macros::delegate_methods;
 use crate::helper::{AsDeref, AsDerefMut, AsDerefPtrExt, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
 use crate::impls::slices::helper::{GetDisjointMutIndexImpl, SliceIndexImpl};
@@ -494,6 +494,26 @@ impl<T> RoObserve for [T] {
         S: AsDeref<D, Target = Self> + ?Sized + 'ob;
 
     type Spec = DefaultSpec;
+}
+
+impl<T: Snapshot> Snapshot for [T] {
+    type Snapshot = Box<[T::Snapshot]>;
+
+    fn to_snapshot(&self) -> Box<[T::Snapshot]> {
+        self.iter().map(|v| v.to_snapshot()).collect()
+    }
+}
+
+impl<T: SerializeSnapshot + 'static> SerializeSnapshot for [T] {
+    fn flush(&self, snapshot: Box<[T::Snapshot]>) -> Mutations {
+        if self.len() != snapshot.len()
+            || self.iter().zip(snapshot.into_vec()).any(|(v, s)| !v.flush(s).is_empty())
+        {
+            Mutations::replace(self)
+        } else {
+            Mutations::new()
+        }
+    }
 }
 
 #[cfg(test)]

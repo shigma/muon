@@ -10,6 +10,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::windows::ffi::OsStrExt;
 
 use super::os_str::{OsStrObserver, os_str_len};
+use crate::general::{SerializeSnapshot, Snapshot};
 use crate::helper::macros::{default_impl_ro_observe, delegate_methods};
 use crate::helper::shallow::{ObserverState, SerializeObserverState};
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, QuasiObserver, Succ, Unsigned, Zero};
@@ -268,6 +269,23 @@ impl Observe for OsString {
 
 default_impl_ro_observe! {
     impl RoObserve for OsString;
+}
+
+impl Snapshot for OsString {
+    #[cfg(unix)]
+    type Snapshot = Box<[u8]>;
+    #[cfg(windows)]
+    type Snapshot = Box<[u16]>;
+
+    fn to_snapshot(&self) -> Self::Snapshot {
+        self.as_os_str().to_snapshot()
+    }
+}
+
+impl SerializeSnapshot for OsString {
+    fn flush(&self, snapshot: Self::Snapshot) -> Mutations {
+        self.as_os_str().flush(snapshot)
+    }
 }
 
 #[cfg(test)]

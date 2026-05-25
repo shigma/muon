@@ -5,7 +5,7 @@ use std::ops::{Deref, DerefMut};
 use serde::Serialize;
 
 use crate::Mutations;
-use crate::general::Snapshot;
+use crate::general::{SerializeSnapshot, Snapshot};
 use crate::helper::macros::{spec_impl_observe_from_ro, spec_impl_ro_observe};
 use crate::helper::{AsDeref, AsDerefMut, Pointer, QuasiObserver, Succ, Unsigned, Zero};
 use crate::mutation::SerializeRef;
@@ -145,8 +145,19 @@ where
 spec_impl_observe_from_ro!(WeakObserveImpl, std::rc::Weak<Self>, std::rc::Weak<T>, WeakObserver);
 spec_impl_ro_observe!(WeakRoObserveImpl, std::rc::Weak<Self>, std::rc::Weak<T>, WeakObserver);
 
-spec_impl_observe_from_ro!(SyncWeakObserveImpl, std::sync::Weak<Self>, std::sync::Weak<T>, WeakObserver);
-spec_impl_ro_observe!(SyncWeakRoObserveImpl, std::sync::Weak<Self>, std::sync::Weak<T>, WeakObserver);
+spec_impl_observe_from_ro!(
+    SyncWeakObserveImpl,
+    std::sync::Weak<Self>,
+    std::sync::Weak<T>,
+    WeakObserver,
+);
+
+spec_impl_ro_observe!(
+    SyncWeakRoObserveImpl,
+    std::sync::Weak<Self>,
+    std::sync::Weak<T>,
+    WeakObserver,
+);
 
 impl<T: Snapshot + ?Sized> Snapshot for std::rc::Weak<T> {
     type Snapshot = Option<T::Snapshot>;
@@ -154,11 +165,21 @@ impl<T: Snapshot + ?Sized> Snapshot for std::rc::Weak<T> {
     fn to_snapshot(&self) -> Self::Snapshot {
         self.upgrade().map(|v| v.to_snapshot())
     }
+}
 
-    fn eq_snapshot(&self, snapshot: &Self::Snapshot) -> bool {
-        self.upgrade()
-            .zip(snapshot.as_ref())
-            .is_some_and(|(v, snapshot)| v.eq_snapshot(snapshot))
+impl<T: SerializeSnapshot + ?Sized + 'static> SerializeSnapshot for std::rc::Weak<T> {
+    fn flush(&self, snapshot: Self::Snapshot) -> Mutations {
+        match (self.upgrade(), snapshot) {
+            (Some(v), Some(s)) => {
+                if !(*v).flush(s).is_empty() {
+                    Mutations::replace(&Some(SerializeRef(&*v)))
+                } else {
+                    Mutations::new()
+                }
+            }
+            (None, None) => Mutations::new(),
+            (rc, _) => Mutations::replace(&rc.as_deref().map(|v| SerializeRef(v))),
+        }
     }
 }
 
@@ -168,10 +189,20 @@ impl<T: Snapshot + ?Sized> Snapshot for std::sync::Weak<T> {
     fn to_snapshot(&self) -> Self::Snapshot {
         self.upgrade().map(|v| v.to_snapshot())
     }
+}
 
-    fn eq_snapshot(&self, snapshot: &Self::Snapshot) -> bool {
-        self.upgrade()
-            .zip(snapshot.as_ref())
-            .is_some_and(|(v, snapshot)| v.eq_snapshot(snapshot))
+impl<T: SerializeSnapshot + ?Sized + 'static> SerializeSnapshot for std::sync::Weak<T> {
+    fn flush(&self, snapshot: Self::Snapshot) -> Mutations {
+        match (self.upgrade(), snapshot) {
+            (Some(v), Some(s)) => {
+                if !(*v).flush(s).is_empty() {
+                    Mutations::replace(&Some(SerializeRef(&*v)))
+                } else {
+                    Mutations::new()
+                }
+            }
+            (None, None) => Mutations::new(),
+            (rc, _) => Mutations::replace(&rc.as_deref().map(|v| SerializeRef(v))),
+        }
     }
 }

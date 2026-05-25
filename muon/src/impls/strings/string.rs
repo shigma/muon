@@ -6,6 +6,7 @@ use std::ops::{AddAssign, Bound, Deref, DerefMut, Index, IndexMut, RangeBounds};
 use std::slice::SliceIndex;
 use std::string::Drain;
 
+use crate::general::{SerializeSnapshot, Snapshot};
 use crate::helper::macros::{default_impl_ro_observe, delegate_methods};
 use crate::helper::shallow::{ObserverState, SerializeObserverState, ShallowMut};
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, QuasiObserver, Succ, Unsigned, Zero};
@@ -420,6 +421,20 @@ impl Observe for String {
 
 default_impl_ro_observe! {
     impl RoObserve for String;
+}
+
+impl Snapshot for String {
+    type Snapshot = Box<str>;
+
+    fn to_snapshot(&self) -> Box<str> {
+        self.as_str().to_snapshot()
+    }
+}
+
+impl SerializeSnapshot for String {
+    fn flush(&self, snapshot: Box<str>) -> Mutations {
+        self.as_str().flush(snapshot)
+    }
 }
 
 #[cfg(test)]

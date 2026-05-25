@@ -8,6 +8,7 @@ use std::os::windows::ffi::OsStrExt;
 use std::ptr::NonNull;
 
 use crate::Mutations;
+use crate::general::{SerializeSnapshot, Snapshot};
 use crate::helper::macros::delegate_methods;
 use crate::helper::shallow::{ObserverState, SerializeObserverState, shallow_observer};
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, QuasiObserver, Unsigned};
@@ -122,4 +123,27 @@ impl RoObserve for OsStr {
         S: AsDeref<D, Target = Self> + ?Sized + 'ob;
 
     type Spec = DefaultSpec;
+}
+
+impl Snapshot for OsStr {
+    #[cfg(unix)]
+    type Snapshot = Box<[u8]>;
+    #[cfg(windows)]
+    type Snapshot = Box<[u16]>;
+
+    fn to_snapshot(&self) -> Self::Snapshot {
+        #[cfg(unix)]
+        return self.as_bytes().into();
+        #[cfg(windows)]
+        return self.encode_wide().collect();
+    }
+}
+
+impl SerializeSnapshot for OsStr {
+    fn flush(&self, snapshot: Self::Snapshot) -> Mutations {
+        #[cfg(unix)]
+        return self.to_snapshot().flush(snapshot).with_prefix("Unix");
+        #[cfg(windows)]
+        return self.to_snapshot().flush(snapshot).with_prefix("Windows");
+    }
 }

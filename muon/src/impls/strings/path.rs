@@ -6,6 +6,7 @@ use std::path::Path;
 use std::ptr::NonNull;
 
 use crate::Mutations;
+use crate::general::{SerializeSnapshot, Snapshot};
 use crate::helper::shallow::{ObserverState, SerializeObserverState, ShallowDelegate, shallow_observer};
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, Unsigned, Zero};
 use crate::impls::strings::TruncateLen;
@@ -108,4 +109,22 @@ impl RoObserve for Path {
         S: AsDeref<D, Target = Self> + ?Sized + 'ob;
 
     type Spec = DefaultSpec;
+}
+
+impl Snapshot for Path {
+    type Snapshot = Option<Box<str>>;
+
+    fn to_snapshot(&self) -> Option<Box<str>> {
+        self.to_str().map(|s| s.into())
+    }
+}
+
+impl SerializeSnapshot for Path {
+    fn flush(&self, snapshot: Option<Box<str>>) -> Mutations {
+        match (self.to_str(), snapshot) {
+            (Some(s), Some(snapshot)) => s.flush(snapshot),
+            (None, None) => Mutations::new(),
+            _ => Mutations::replace(self),
+        }
+    }
 }

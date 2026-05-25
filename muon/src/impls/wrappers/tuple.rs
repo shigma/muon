@@ -4,7 +4,7 @@ use std::ops::{Deref, DerefMut};
 
 use serde::Serialize;
 
-use crate::general::Snapshot;
+use crate::general::{SerializeSnapshot, Snapshot};
 use crate::helper::macros::{spec_impl_observe, spec_impl_ro_observe};
 use crate::helper::{AsDeref, AsDerefMut, AsDerefPtrExt, Pointer, QuasiObserver, Succ, Unsigned, Zero};
 use crate::observe::{DefaultSpec, Observer, RoObserve, SerializeObserver};
@@ -171,9 +171,18 @@ impl<T: Snapshot> Snapshot for (T,) {
     fn to_snapshot(&self) -> Self::Snapshot {
         (self.0.to_snapshot(),)
     }
+}
 
-    fn eq_snapshot(&self, snapshot: &Self::Snapshot) -> bool {
-        self.0.eq_snapshot(&snapshot.0)
+#[cfg_attr(docsrs, doc(fake_variadic))]
+#[cfg_attr(docsrs, doc = "This trait is implemented for tuples up to 12 items long.")]
+impl<T: SerializeSnapshot + 'static> SerializeSnapshot for (T,) {
+    fn flush(&self, snapshot: Self::Snapshot) -> Mutations {
+        let mutations = self.0.flush(snapshot.0);
+        if mutations.is_replace() {
+            Mutations::replace(self)
+        } else {
+            mutations.with_prefix(0)
+        }
     }
 }
 
@@ -393,9 +402,18 @@ macro_rules! tuple_observer {
             fn to_snapshot(&self) -> Self::Snapshot {
                 ($(self.$n.to_snapshot(),)*)
             }
+        }
 
-            fn eq_snapshot(&self, snapshot: &Self::Snapshot) -> bool {
-                $(self.$n.eq_snapshot(&snapshot.$n))&&+
+        impl<$($t: SerializeSnapshot + 'static,)*> SerializeSnapshot for ($($t,)*) {
+            fn flush(&self, snapshot: Self::Snapshot) -> Mutations {
+                let mutations_tuple = ($(self.$n.flush(snapshot.$n).with_prefix($n),)*);
+                let capacity = 0 $(+ mutations_tuple.$n.len())*;
+                if capacity == $ptr {
+                    return Mutations::replace(self);
+                }
+                let mut mutations = Mutations::new().with_capacity(capacity);
+                $(mutations.extend(mutations_tuple.$n);)*
+                mutations
             }
         }
     };
