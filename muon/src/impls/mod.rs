@@ -1,14 +1,14 @@
 //! Observer implementations for library types.
 //!
-//! This module provides specialized [`Observer`](crate::observe::Observer) implementations
-//! for common library types. These observers enable precise mutation tracking tailored to each
-//! type's semantics.
+//! This module provides specialized [`Observer`](crate::observe::Observer) implementations for
+//! common library types. These observers enable precise mutation tracking tailored to each type's
+//! semantics.
 //!
 //! ## Usage
 //!
-//! These observers are typically used automatically through the [`Observe`](crate::Observe)
-//! trait implementations. Direct usage is rarely needed unless implementing custom observers
-//! or implementing foreign traits on observer types.
+//! These observers are typically used automatically through the [`Observe`](crate::Observe) trait
+//! implementations. Direct usage is rarely needed unless implementing custom observers or
+//! implementing foreign traits on observer types.
 //!
 //! ## Stability
 //!

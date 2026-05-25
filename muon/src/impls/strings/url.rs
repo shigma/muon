@@ -6,6 +6,7 @@ use std::net::IpAddr;
 use url::{ParseError, Url};
 
 use crate::Observe;
+use crate::helper::macros::default_impl_ro_observe;
 use crate::helper::shallow::shallow_observer;
 use crate::helper::{AsDeref, AsDerefMut, QuasiObserver, Unsigned};
 use crate::impls::strings::string::StringObserverState;
@@ -133,6 +134,10 @@ impl Observe for Url {
         S: AsDerefMut<D, Target = Self> + ?Sized + 'ob;
 
     type Spec = DefaultSpec;
+}
+
+default_impl_ro_observe! {
+    impl RoObserve for Url;
 }
 
 #[cfg(test)]

@@ -145,6 +145,9 @@ where
 spec_impl_observe_from_ro!(WeakObserveImpl, std::rc::Weak<Self>, std::rc::Weak<T>, WeakObserver);
 spec_impl_ro_observe!(WeakRoObserveImpl, std::rc::Weak<Self>, std::rc::Weak<T>, WeakObserver);
 
+spec_impl_observe_from_ro!(SyncWeakObserveImpl, std::sync::Weak<Self>, std::sync::Weak<T>, WeakObserver);
+spec_impl_ro_observe!(SyncWeakRoObserveImpl, std::sync::Weak<Self>, std::sync::Weak<T>, WeakObserver);
+
 impl<T: Snapshot + ?Sized> Snapshot for std::rc::Weak<T> {
     type Snapshot = Option<T::Snapshot>;
 
