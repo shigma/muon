@@ -8,7 +8,7 @@ use crate::Mutations;
 use crate::general::Snapshot;
 use crate::helper::macros::{spec_impl_observe, spec_impl_ref_observe};
 use crate::helper::{AsDeref, AsDerefMut, AsDerefPtrExt, Pointer, QuasiObserver, Succ, Unsigned, Zero};
-use crate::observe::{Observer, RefObserver, SerializeObserver};
+use crate::observe::{Observer, SerializeObserver};
 
 /// Helper trait to access the inner field of a transparent newtype wrapper.
 pub trait Newtype {
@@ -105,44 +105,27 @@ where
 impl<O, S: ?Sized, D> Observer for NewtypeObserver<O, S, D>
 where
     D: Unsigned,
-    S: AsDerefMut<D, Target: Newtype<Inner = O::Head>>,
+    S: AsDeref<D, Target: Newtype<Inner = O::Head>>,
     O: Observer<InnerDepth = Zero>,
     O::Head: Sized,
 {
-    fn observe(head: &mut Self::Head) -> Self {
-        let value = head.as_deref_mut();
-        let ob = O::observe(value.as_inner_mut());
-        let ptr = Pointer::new(head);
-        let this = Self(ob, ptr, PhantomData);
-        Pointer::register_observer(&this.1, &this.0);
-        this
+    unsafe fn observe(head: *mut Self::Head) -> Self {
+        unsafe {
+            let value = head.as_deref_ptr::<D>();
+            let ob = O::observe(Newtype::as_inner_ptr(value));
+            let ptr = Pointer::new_unchecked(head);
+            let this = Self(ob, ptr, PhantomData);
+            Pointer::register_observer(&this.1, &this.0);
+            this
+        }
     }
 
     unsafe fn relocate(this: &mut Self, head: *mut Self::Head) {
-        let value = unsafe { head.as_deref_ptr::<D>() };
-        unsafe { O::relocate(&mut this.0, Newtype::as_inner_ptr(value)) }
-        unsafe { Pointer::set_unchecked(&this.1, head) };
-    }
-}
-
-impl<O, S: ?Sized, D> RefObserver for NewtypeObserver<O, S, D>
-where
-    D: Unsigned,
-    S: AsDeref<D, Target: Newtype<Inner = O::Head>>,
-    O: RefObserver<InnerDepth = Zero>,
-    O::Head: Sized,
-{
-    fn observe(head: &Self::Head) -> Self {
-        let value = head.as_deref();
-        let this = Self(O::observe(value.as_inner()), Pointer::new(head), PhantomData);
-        Pointer::register_observer(&this.1, &this.0);
-        this
-    }
-
-    unsafe fn relocate(this: &mut Self, head: *const Self::Head) {
-        unsafe { Pointer::set_unchecked(&this.1, head) };
-        let value = unsafe { head.as_deref_ptr::<D>() };
-        unsafe { O::relocate(&mut this.0, Newtype::as_inner_ptr(value)) }
+        unsafe {
+            let value = head.as_deref_ptr::<D>();
+            O::relocate(&mut this.0, Newtype::as_inner_ptr(value));
+            Pointer::set_unchecked(&this.1, head);
+        }
     }
 }
 
@@ -152,12 +135,12 @@ where
     S: AsDeref<D, Target: Newtype<Inner = O::Head>>,
     O: SerializeObserver<InnerDepth = Zero, Head: Sized>,
 {
-    unsafe fn flush(this: &mut Self) -> Mutations {
-        unsafe { SerializeObserver::flush(&mut this.0) }
+    fn flush(this: &mut Self) -> Mutations {
+        SerializeObserver::flush(&mut this.0)
     }
 
-    unsafe fn flat_flush(this: &mut Self) -> Mutations {
-        unsafe { SerializeObserver::flat_flush(&mut this.0) }
+    fn flat_flush(this: &mut Self) -> Mutations {
+        SerializeObserver::flat_flush(&mut this.0)
     }
 }
 

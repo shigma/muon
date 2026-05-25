@@ -36,18 +36,32 @@ const _: () = {
     where
         &'i mut String: ::muon::Observe,
     {
-        fn observe(value: &mut Foo<'i>) -> Self {
-            match value {
-                Foo::A(v0) => Self::A(::muon::observe::Observer::observe(v0)),
-                Foo::B(v0, v1) => {
-                    Self::B(
-                        ::muon::observe::Observer::observe(v0),
-                        ::muon::observe::Observer::observe(v1),
-                    )
-                }
-                Foo::C { bar } => {
-                    Self::C {
-                        bar: ::muon::observe::Observer::observe(bar),
+        unsafe fn observe(__ptr: *mut Foo<'i>) -> Self {
+            unsafe {
+                match &*__ptr {
+                    Foo::A(v0) => {
+                        Self::A(
+                            ::muon::observe::Observer::observe(
+                                __ptr.with_addr(v0 as *const _ as usize).cast(),
+                            ),
+                        )
+                    }
+                    Foo::B(v0, v1) => {
+                        Self::B(
+                            ::muon::observe::Observer::observe(
+                                __ptr.with_addr(v0 as *const _ as usize).cast(),
+                            ),
+                            ::muon::observe::Observer::observe(
+                                __ptr.with_addr(v1 as *const _ as usize).cast(),
+                            ),
+                        )
+                    }
+                    Foo::C { bar } => {
+                        Self::C {
+                            bar: ::muon::observe::Observer::observe(
+                                __ptr.with_addr(bar as *const _ as usize).cast(),
+                            ),
+                        }
                     }
                 }
             }
@@ -92,17 +106,11 @@ const _: () = {
         {
             match self {
                 Self::A(u0) => {
-                    unsafe {
-                        ::muon::observe::SerializeObserver::flush(u0).with_prefix("data")
-                    }
+                    ::muon::observe::SerializeObserver::flush(u0).with_prefix("data")
                 }
                 Self::B(u0, u1) => {
-                    let mutations_0 = unsafe {
-                        ::muon::observe::SerializeObserver::flush(u0)
-                    };
-                    let mutations_1 = unsafe {
-                        ::muon::observe::SerializeObserver::flush(u1)
-                    };
+                    let mutations_0 = ::muon::observe::SerializeObserver::flush(u0);
+                    let mutations_1 = ::muon::observe::SerializeObserver::flush(u1);
                     if mutations_0.is_replace() && mutations_1.is_replace() {
                         return ::muon::Mutations::replace(unsafe { &*__ptr });
                     }
@@ -116,9 +124,7 @@ const _: () = {
                     mutations.with_prefix("data")
                 }
                 Self::C { bar } => {
-                    let mutations_bar = unsafe {
-                        ::muon::observe::SerializeObserver::flush(bar)
-                    };
+                    let mutations_bar = ::muon::observe::SerializeObserver::flush(bar);
                     if mutations_bar.is_replace() {
                         return ::muon::Mutations::replace(unsafe { &*__ptr });
                     }
@@ -140,15 +146,11 @@ const _: () = {
         {
             match self {
                 Self::A(u0) => {
-                    unsafe {
-                        ::muon::observe::SerializeObserver::flat_flush(u0)
-                            .with_prefix("data")
-                    }
+                    ::muon::observe::SerializeObserver::flat_flush(u0)
+                        .with_prefix("data")
                 }
                 Self::C { bar } => {
-                    let mutations_bar = unsafe {
-                        ::muon::observe::SerializeObserver::flush(bar)
-                    };
+                    let mutations_bar = ::muon::observe::SerializeObserver::flush(bar);
                     let mut mutations = ::muon::Mutations::new()
                         .with_capacity(!mutations_bar.is_empty() as usize)
                         .with_replace(mutations_bar.is_replace());
@@ -200,16 +202,18 @@ const _: () = {
     impl<'ob, 'i, S: ?Sized, N> ::muon::observe::Observer for FooObserver<'ob, 'i, S, N>
     where
         &'i mut String: ::muon::Observe,
-        S: ::muon::helper::AsDerefMut<N, Target = Foo<'i>>,
+        S: ::muon::helper::AsDeref<N, Target = Foo<'i>>,
         N: ::muon::helper::Unsigned,
     {
-        fn observe(head: &mut S) -> Self {
-            let __value = head.as_deref_mut();
-            Self {
-                mutated: false,
-                variant: FooObserverVariant::observe(__value),
-                ptr: ::muon::helper::Pointer::new(head),
-                phantom: ::std::marker::PhantomData,
+        unsafe fn observe(head: *mut S) -> Self {
+            unsafe {
+                let __ptr = ::muon::helper::AsDerefPtrExt::as_deref_ptr::<N>(head);
+                Self {
+                    mutated: false,
+                    variant: FooObserverVariant::observe(__ptr),
+                    ptr: ::muon::helper::Pointer::new_unchecked(head),
+                    phantom: ::std::marker::PhantomData,
+                }
             }
         }
         unsafe fn relocate(this: &mut Self, head: *mut S) {
@@ -233,7 +237,7 @@ const _: () = {
             &'i mut String,
         >: ::muon::observe::SerializeObserver,
     {
-        unsafe fn flush(this: &mut Self) -> ::muon::Mutations {
+        fn flush(this: &mut Self) -> ::muon::Mutations {
             let value = this.ptr.as_deref();
             if !this.mutated {
                 return this.variant.flush(value);
@@ -242,7 +246,7 @@ const _: () = {
             this.variant = FooObserverVariant::__Unknown;
             ::muon::Mutations::replace(this.as_deref())
         }
-        unsafe fn flat_flush(this: &mut Self) -> ::muon::Mutations {
+        fn flat_flush(this: &mut Self) -> ::muon::Mutations {
             let value = this.ptr.as_deref();
             if !this.mutated {
                 return this.variant.flat_flush(value);

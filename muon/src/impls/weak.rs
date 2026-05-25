@@ -9,7 +9,7 @@ use crate::general::Snapshot;
 use crate::helper::macros::{spec_impl_observe_from_ref, spec_impl_ref_observe};
 use crate::helper::{AsDeref, AsDerefMut, Pointer, QuasiObserver, Succ, Unsigned, Zero};
 use crate::mutation::SerializeRef;
-use crate::observe::{Observer, RefObserver, SerializeObserver};
+use crate::observe::{Observer, SerializeObserver};
 
 trait Weak<T: ?Sized> {
     type Ptr: Deref<Target = T>;
@@ -77,51 +77,29 @@ impl<O, S: ?Sized, D> Observer for WeakObserver<O, S, D>
 where
     D: Unsigned,
     S: AsDeref<D, Target: Weak<O::Head>>,
-    O: RefObserver<InnerDepth = Zero>,
+    O: Observer<InnerDepth = Zero>,
 {
-    fn observe(head: &mut Self::Head) -> Self {
-        let rc = (*head).as_deref().upgrade();
-        Self {
-            mutated: false,
-            initial: rc.is_some(),
-            inner: rc.map(|ptr| O::observe(&*ptr)),
-            ptr: Pointer::new(head),
-            phantom: PhantomData,
+    unsafe fn observe(head: *mut Self::Head) -> Self {
+        unsafe {
+            let rc = (&*head).as_deref().upgrade();
+            Self {
+                mutated: false,
+                initial: rc.is_some(),
+                inner: rc.map(|ptr| O::observe(std::ptr::from_ref(&*ptr).cast_mut())),
+                ptr: Pointer::new_unchecked(head),
+                phantom: PhantomData,
+            }
         }
     }
 
     unsafe fn relocate(this: &mut Self, head: *mut Self::Head) {
-        if let Some(inner) = &mut this.inner
-            && let Some(ptr) = unsafe { (&*head).as_deref().upgrade() }
-        {
-            unsafe { O::relocate(inner, &*ptr) }
-        }
-        unsafe { Pointer::set_unchecked(&this.ptr, head) };
-    }
-}
-
-impl<O, S: ?Sized, D> RefObserver for WeakObserver<O, S, D>
-where
-    D: Unsigned,
-    S: AsDeref<D, Target: Weak<O::Head>>,
-    O: RefObserver<InnerDepth = Zero>,
-{
-    fn observe(head: &Self::Head) -> Self {
-        let rc = head.as_deref().upgrade();
-        Self {
-            ptr: Pointer::new(head),
-            mutated: false,
-            initial: rc.is_some(),
-            inner: rc.map(|ptr| O::observe(&*ptr)),
-            phantom: PhantomData,
-        }
-    }
-
-    unsafe fn relocate(this: &mut Self, head: *const Self::Head) {
-        if let Some(inner) = &mut this.inner
-            && let Some(ptr) = unsafe { (&*head).as_deref().upgrade() }
-        {
-            unsafe { O::relocate(inner, &*ptr) }
+        unsafe {
+            if let Some(inner) = &mut this.inner
+                && let Some(ptr) = (&*head).as_deref().upgrade()
+            {
+                O::relocate(inner, std::ptr::from_ref(&*ptr).cast_mut());
+            }
+            Pointer::set_unchecked(&this.ptr, head);
         }
     }
 }
@@ -133,13 +111,13 @@ where
     O: SerializeObserver<InnerDepth = Zero>,
     O::Head: Serialize + 'static,
 {
-    unsafe fn flush(this: &mut Self) -> Mutations {
+    fn flush(this: &mut Self) -> Mutations {
         let rc = (*this.ptr).as_deref().upgrade();
         let initial = this.initial;
         this.initial = rc.is_some();
         if !this.mutated {
             if let Some(ob) = &mut this.inner {
-                return unsafe { SerializeObserver::flush(ob) };
+                return SerializeObserver::flush(ob);
             } else {
                 return Mutations::new();
             }

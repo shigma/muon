@@ -131,6 +131,24 @@ impl<S: ?Sized> Pointer<S> {
         this.inner.set(ptr);
     }
 
+    /// Creates a new [`Pointer`] from a raw pointer.
+    ///
+    /// Analogous to [`Pointer::new`] but accepts `*mut S` directly. Used in
+    /// [`Observer::observe`](crate::observe::Observer::observe) implementations where the
+    /// head is received as a raw pointer.
+    ///
+    /// # Safety
+    ///
+    /// `head` must be non-null and valid for the lifetime of this [`Pointer`].
+    pub unsafe fn new_unchecked(head: *mut S) -> Self {
+        let ptr = unsafe { NonNull::new_unchecked(head) };
+        ptr.cast::<u8>().expose_provenance();
+        Pointer {
+            inner: Cell::new(ptr),
+            states: UnsafeCell::new(Vec::new()),
+        }
+    }
+
     /// Updates the internal pointer from a raw pointer.
     ///
     /// Like [`Pointer::set`], but accepts a raw `*mut S` directly. Used in

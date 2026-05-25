@@ -236,41 +236,22 @@ macro_rules! __shallow_observer {
         impl<'ob, $($tg)* S: ?Sized, D> $crate::observe::Observer for $ob<'ob, $($sg)* S, D>
         where
             D: $crate::helper::Unsigned,
-            S: $crate::helper::AsDerefMut<D, Target = $ty>,
-            $state: $crate::helper::shallow::ObserverState<$ty>,
-        {
-            fn observe(head: &mut Self::Head) -> Self {
-                let this = Self {
-                    state: $crate::helper::shallow::ObserverState::observe(head.as_deref_mut()),
-                    ptr: $crate::helper::Pointer::new(head),
-                    phantom: ::std::marker::PhantomData,
-                };
-                $crate::helper::Pointer::register_state::<_, D>(&this.ptr, &this.state);
-                this
-            }
-
-            unsafe fn relocate(this: &mut Self, head: *mut Self::Head) {
-                unsafe { $crate::helper::Pointer::set_unchecked(this, head) };
-            }
-        }
-
-        impl<'ob, $($tg)* S: ?Sized, D> $crate::observe::RefObserver for $ob<'ob, $($sg)* S, D>
-        where
-            D: $crate::helper::Unsigned,
             S: $crate::helper::AsDeref<D, Target = $ty>,
             $state: $crate::helper::shallow::ObserverState<$ty>,
         {
-            fn observe(head: &Self::Head) -> Self {
-                let this = Self {
-                    state: $crate::helper::shallow::ObserverState::observe(head.as_deref()),
-                    ptr: $crate::helper::Pointer::new(head),
-                    phantom: ::std::marker::PhantomData,
-                };
-                $crate::helper::Pointer::register_state::<_, D>(&this.ptr, &this.state);
-                this
+            unsafe fn observe(head: *mut Self::Head) -> Self {
+                unsafe {
+                    let this = Self {
+                        state: $crate::helper::shallow::ObserverState::observe((&*head).as_deref()),
+                        ptr: $crate::helper::Pointer::new_unchecked(head),
+                        phantom: ::std::marker::PhantomData,
+                    };
+                    $crate::helper::Pointer::register_state::<_, D>(&this.ptr, &this.state);
+                    this
+                }
             }
 
-            unsafe fn relocate(this: &mut Self, head: *const Self::Head) {
+            unsafe fn relocate(this: &mut Self, head: *mut Self::Head) {
                 unsafe { $crate::helper::Pointer::set_unchecked(this, head) };
             }
         }
@@ -281,14 +262,14 @@ macro_rules! __shallow_observer {
             S: $crate::helper::AsDeref<D, Target = $ty>,
             $state: $crate::helper::shallow::SerializeObserverState<$ty>,
         {
-            unsafe fn flush(this: &mut Self) -> $crate::mutation::Mutations {
+            fn flush(this: &mut Self) -> $crate::mutation::Mutations {
                 $crate::helper::shallow::SerializeObserverState::flush(
                     &mut this.state,
                     (*this.ptr).as_deref(),
                 )
             }
 
-            unsafe fn flat_flush(this: &mut Self) -> $crate::mutation::Mutations {
+            fn flat_flush(this: &mut Self) -> $crate::mutation::Mutations {
                 $crate::helper::shallow::SerializeObserverState::flat_flush(
                     &mut this.state,
                     (*this.ptr).as_deref(),

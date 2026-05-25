@@ -61,17 +61,19 @@ const _: () = {
         S: ::muon::helper::AsDerefMut<N, Target = Foo>,
         N: ::muon::helper::Unsigned,
     {
-        fn observe(head: &mut S) -> Self {
-            let __value = head.as_deref_mut();
-            let r#a = ::muon::observe::Observer::observe(&mut __value.r#a);
-            let b = ::muon::observe::Observer::observe(&mut __value.b);
-            let c = ::muon::observe::Observer::observe(&mut __value.c);
-            Self {
-                r#a,
-                b,
-                c,
-                __ptr: ::muon::helper::Pointer::new(head),
-                __phantom: ::std::marker::PhantomData,
+        unsafe fn observe(head: *mut S) -> Self {
+            unsafe {
+                let __value = ::muon::helper::AsDeref::<N>::as_deref_ptr(head);
+                let r#a = ::muon::observe::Observer::observe(&raw mut (*__value).r#a);
+                let b = ::muon::observe::Observer::observe(&raw mut (*__value).b);
+                let c = ::muon::observe::Observer::observe(&raw mut (*__value).c);
+                Self {
+                    r#a,
+                    b,
+                    c,
+                    __ptr: ::muon::helper::Pointer::new_unchecked(head),
+                    __phantom: ::std::marker::PhantomData,
+                }
             }
         }
         unsafe fn relocate(this: &mut Self, head: *mut S) {
@@ -93,16 +95,12 @@ const _: () = {
         S: ::muon::helper::AsDerefMut<N, Target = Foo>,
         N: ::muon::helper::Unsigned,
     {
-        unsafe fn flush(this: &mut Self) -> ::muon::Mutations {
-            let mutations_a = unsafe {
-                ::muon::observe::SerializeObserver::flush(&mut this.r#a)
-            };
-            let mutations_b = unsafe {
-                ::muon::observe::SerializeObserver::flush(&mut this.b)
-            };
-            let mutations_c = unsafe {
-                ::muon::observe::SerializeObserver::flat_flush(&mut this.c)
-            };
+        fn flush(this: &mut Self) -> ::muon::Mutations {
+            let mutations_a = ::muon::observe::SerializeObserver::flush(&mut this.r#a);
+            let mutations_b = ::muon::observe::SerializeObserver::flush(&mut this.b);
+            let mutations_c = ::muon::observe::SerializeObserver::flat_flush(
+                &mut this.c,
+            );
             if mutations_a.is_replace() && mutations_b.is_replace()
                 && mutations_c.is_replace()
             {
@@ -119,16 +117,12 @@ const _: () = {
             mutations.extend(mutations_c);
             mutations
         }
-        unsafe fn flat_flush(this: &mut Self) -> ::muon::Mutations {
-            let mutations_a = unsafe {
-                ::muon::observe::SerializeObserver::flush(&mut this.r#a)
-            };
-            let mutations_b = unsafe {
-                ::muon::observe::SerializeObserver::flush(&mut this.b)
-            };
-            let mutations_c = unsafe {
-                ::muon::observe::SerializeObserver::flat_flush(&mut this.c)
-            };
+        fn flat_flush(this: &mut Self) -> ::muon::Mutations {
+            let mutations_a = ::muon::observe::SerializeObserver::flush(&mut this.r#a);
+            let mutations_b = ::muon::observe::SerializeObserver::flush(&mut this.b);
+            let mutations_c = ::muon::observe::SerializeObserver::flat_flush(
+                &mut this.c,
+            );
             let mut mutations = ::muon::Mutations::new()
                 .with_capacity(
                     !mutations_a.is_empty() as usize + !mutations_b.is_empty() as usize
@@ -228,10 +222,16 @@ where
     S: ::muon::helper::AsDerefMut<N, Target = Bar>,
     N: ::muon::helper::Unsigned,
 {
-    fn observe(head: &mut S) -> Self {
-        let __value = head.as_deref_mut();
-        let observer_0 = ::muon::observe::Observer::observe(&mut __value.0);
-        Self(observer_0, ::muon::helper::Pointer::new(head), ::std::marker::PhantomData)
+    unsafe fn observe(head: *mut S) -> Self {
+        unsafe {
+            let __value = ::muon::helper::AsDeref::<N>::as_deref_ptr(head);
+            let observer_0 = ::muon::observe::Observer::observe(&raw mut (*__value).0);
+            Self(
+                observer_0,
+                ::muon::helper::Pointer::new_unchecked(head),
+                ::std::marker::PhantomData,
+            )
+        }
     }
     unsafe fn relocate(this: &mut Self, head: *mut S) {
         unsafe {
@@ -248,11 +248,11 @@ where
     S: ::muon::helper::AsDerefMut<N, Target = Bar>,
     N: ::muon::helper::Unsigned,
 {
-    unsafe fn flush(this: &mut Self) -> ::muon::Mutations {
-        unsafe { ::muon::observe::SerializeObserver::flush(&mut this.0) }
+    fn flush(this: &mut Self) -> ::muon::Mutations {
+        ::muon::observe::SerializeObserver::flush(&mut this.0)
     }
-    unsafe fn flat_flush(this: &mut Self) -> ::muon::Mutations {
-        unsafe { ::muon::observe::SerializeObserver::flat_flush(&mut this.0) }
+    fn flat_flush(this: &mut Self) -> ::muon::Mutations {
+        ::muon::observe::SerializeObserver::flat_flush(&mut this.0)
     }
 }
 #[rustfmt::skip]
@@ -313,16 +313,22 @@ const _: () = {
         S: ::muon::helper::AsDerefMut<N, Target = Baz>,
         N: ::muon::helper::Unsigned,
     {
-        fn observe(head: &mut S) -> Self {
-            let __value = head.as_deref_mut();
-            let observer_0 = ::muon::observe::Observer::observe(&mut __value.0);
-            let observer_1 = ::muon::observe::Observer::observe(&mut __value.1);
-            Self(
-                observer_0,
-                observer_1,
-                ::muon::helper::Pointer::new(head),
-                ::std::marker::PhantomData,
-            )
+        unsafe fn observe(head: *mut S) -> Self {
+            unsafe {
+                let __value = ::muon::helper::AsDeref::<N>::as_deref_ptr(head);
+                let observer_0 = ::muon::observe::Observer::observe(
+                    &raw mut (*__value).0,
+                );
+                let observer_1 = ::muon::observe::Observer::observe(
+                    &raw mut (*__value).1,
+                );
+                Self(
+                    observer_0,
+                    observer_1,
+                    ::muon::helper::Pointer::new_unchecked(head),
+                    ::std::marker::PhantomData,
+                )
+            }
         }
         unsafe fn relocate(this: &mut Self, head: *mut S) {
             unsafe {
@@ -339,13 +345,9 @@ const _: () = {
         S: ::muon::helper::AsDerefMut<N, Target = Baz>,
         N: ::muon::helper::Unsigned,
     {
-        unsafe fn flush(this: &mut Self) -> ::muon::Mutations {
-            let mutations_0 = unsafe {
-                ::muon::observe::SerializeObserver::flush(&mut this.0)
-            };
-            let mutations_1 = unsafe {
-                ::muon::observe::SerializeObserver::flush(&mut this.1)
-            };
+        fn flush(this: &mut Self) -> ::muon::Mutations {
+            let mutations_0 = ::muon::observe::SerializeObserver::flush(&mut this.0);
+            let mutations_1 = ::muon::observe::SerializeObserver::flush(&mut this.1);
             if mutations_0.is_replace() && mutations_1.is_replace() {
                 let value = ::muon::helper::QuasiObserver::untracked_ref(&*this);
                 return ::muon::Mutations::replace(value);
@@ -358,13 +360,9 @@ const _: () = {
             mutations.insert(1usize, mutations_1);
             mutations
         }
-        unsafe fn flat_flush(this: &mut Self) -> ::muon::Mutations {
-            let mutations_0 = unsafe {
-                ::muon::observe::SerializeObserver::flush(&mut this.0)
-            };
-            let mutations_1 = unsafe {
-                ::muon::observe::SerializeObserver::flush(&mut this.1)
-            };
+        fn flat_flush(this: &mut Self) -> ::muon::Mutations {
+            let mutations_0 = ::muon::observe::SerializeObserver::flush(&mut this.0);
+            let mutations_1 = ::muon::observe::SerializeObserver::flush(&mut this.1);
             let mut mutations = ::muon::Mutations::new()
                 .with_capacity(
                     !mutations_0.is_empty() as usize + !mutations_1.is_empty() as usize,

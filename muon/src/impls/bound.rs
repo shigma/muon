@@ -8,7 +8,7 @@ use crate::Mutations;
 use crate::general::Snapshot;
 use crate::helper::macros::{spec_impl_observe, spec_impl_ref_observe};
 use crate::helper::{AsDeref, AsDerefMut, AsDerefPtrExt, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
-use crate::observe::{Observer, RefObserver, SerializeObserver};
+use crate::observe::{Observer, SerializeObserver};
 
 struct BoundObserverState<O> {
     initial: bool,
@@ -67,29 +67,32 @@ where
 impl<O, S: ?Sized, D> Observer for BoundObserver<O, S, D>
 where
     D: Unsigned,
-    S: AsDerefMut<D, Target = Bound<O::Head>>,
+    S: AsDeref<D, Target = Bound<O::Head>>,
     O: Observer<InnerDepth = Zero>,
     O::Head: Sized,
 {
-    fn observe(head: &mut Self::Head) -> Self {
-        let value = head.as_deref_mut();
-        let initial = !matches!(value, Bound::Unbounded);
-        let inner = match value {
-            Bound::Included(v) => Bound::Included(O::observe(v)),
-            Bound::Excluded(v) => Bound::Excluded(O::observe(v)),
-            Bound::Unbounded => Bound::Unbounded,
-        };
-        let this = Self {
-            state: BoundObserverState {
-                initial,
-                mutated: false,
-                inner,
-            },
-            ptr: Pointer::new(head),
-            phantom: PhantomData,
-        };
-        Pointer::register_state::<_, D>(&this.ptr, &this.state);
-        this
+    unsafe fn observe(head: *mut Self::Head) -> Self {
+        unsafe {
+            let target = head.as_deref_ptr::<D>();
+            let value = &*target;
+            let initial = !matches!(value, Bound::Unbounded);
+            let inner = match value {
+                Bound::Included(v) => Bound::Included(O::observe(target.with_addr(v as *const _ as usize).cast())),
+                Bound::Excluded(v) => Bound::Excluded(O::observe(target.with_addr(v as *const _ as usize).cast())),
+                Bound::Unbounded => Bound::Unbounded,
+            };
+            let this = Self {
+                state: BoundObserverState {
+                    initial,
+                    mutated: false,
+                    inner,
+                },
+                ptr: Pointer::new_unchecked(head),
+                phantom: PhantomData,
+            };
+            Pointer::register_state::<_, D>(&this.ptr, &this.state);
+            this
+        }
     }
 
     unsafe fn relocate(this: &mut Self, head: *mut Self::Head) {
@@ -110,51 +113,6 @@ where
     }
 }
 
-impl<O, S: ?Sized, D> RefObserver for BoundObserver<O, S, D>
-where
-    D: Unsigned,
-    S: AsDeref<D, Target = Bound<O::Head>>,
-    O: RefObserver<InnerDepth = Zero>,
-    O::Head: Sized,
-{
-    fn observe(head: &Self::Head) -> Self {
-        let value = head.as_deref();
-        let inner = match value {
-            Bound::Included(v) => Bound::Included(O::observe(v)),
-            Bound::Excluded(v) => Bound::Excluded(O::observe(v)),
-            Bound::Unbounded => Bound::Unbounded,
-        };
-        let this = Self {
-            ptr: Pointer::new(head),
-            state: BoundObserverState {
-                initial: !matches!(value, Bound::Unbounded),
-                mutated: false,
-                inner,
-            },
-            phantom: PhantomData,
-        };
-        Pointer::register_state::<_, D>(&this.ptr, &this.state);
-        this
-    }
-
-    unsafe fn relocate(this: &mut Self, head: *const Self::Head) {
-        unsafe {
-            Pointer::set_unchecked(this, head);
-            let target = head.as_deref_ptr::<D>();
-            match (&mut this.state.inner, &*target) {
-                (Bound::Included(o), Bound::Included(v)) => {
-                    O::relocate(o, target.with_addr(v as *const _ as usize).cast());
-                }
-                (Bound::Excluded(o), Bound::Excluded(v)) => {
-                    O::relocate(o, target.with_addr(v as *const _ as usize).cast());
-                }
-                (Bound::Unbounded, _) => {}
-                _ => panic!("inconsistent state for BoundObserver"),
-            }
-        }
-    }
-}
-
 impl<O, S: ?Sized, D> SerializeObserver for BoundObserver<O, S, D>
 where
     D: Unsigned,
@@ -162,14 +120,14 @@ where
     O: SerializeObserver<InnerDepth = Zero>,
     O::Head: Serialize + Sized + 'static,
 {
-    unsafe fn flush(this: &mut Self) -> Mutations {
+    fn flush(this: &mut Self) -> Mutations {
         let value = (*this.ptr).as_deref();
         let initial = std::mem::replace(&mut this.state.initial, !matches!(value, Bound::Unbounded));
         let mutated = std::mem::take(&mut this.state.mutated);
         if !mutated {
             let mutations = match &mut this.state.inner {
-                Bound::Included(o) => unsafe { SerializeObserver::flush(o).with_prefix("Included") },
-                Bound::Excluded(o) => unsafe { SerializeObserver::flush(o).with_prefix("Excluded") },
+                Bound::Included(o) => SerializeObserver::flush(o).with_prefix("Included"),
+                Bound::Excluded(o) => SerializeObserver::flush(o).with_prefix("Excluded"),
                 Bound::Unbounded => Mutations::new(),
             };
             return mutations;
@@ -182,14 +140,14 @@ where
         }
     }
 
-    unsafe fn flat_flush(this: &mut Self) -> Mutations {
+    fn flat_flush(this: &mut Self) -> Mutations {
         let value = (*this.ptr).as_deref();
         let initial = std::mem::replace(&mut this.state.initial, !matches!(value, Bound::Unbounded));
         let mutated = std::mem::take(&mut this.state.mutated);
         if !mutated {
             let mutations = match &mut this.state.inner {
-                Bound::Included(o) => unsafe { SerializeObserver::flat_flush(o).with_prefix("Included") },
-                Bound::Excluded(o) => unsafe { SerializeObserver::flat_flush(o).with_prefix("Excluded") },
+                Bound::Included(o) => SerializeObserver::flat_flush(o).with_prefix("Included"),
+                Bound::Excluded(o) => SerializeObserver::flat_flush(o).with_prefix("Excluded"),
                 _ => panic!("flat_flush can only be called on structs and maps"),
             };
             return mutations;

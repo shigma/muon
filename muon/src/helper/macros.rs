@@ -121,7 +121,7 @@ macro_rules! spec_impl_ref_observe {
 
         pub trait $helper<Spec> {
             type Observer<'ob, S, D $(, const $arg: $arg_ty)*>:
-                $crate::observe::RefObserver<Head = S, InnerDepth = D>
+                $crate::observe::Observer<Head = S, InnerDepth = D>
             where
                 Self: 'ob,
                 D: Unsigned,

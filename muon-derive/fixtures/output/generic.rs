@@ -88,17 +88,19 @@ const _: () = {
         _S: ::muon::helper::AsDerefMut<_N, Target = Foo<'a, S, T, U, N>>,
         _N: ::muon::helper::Unsigned,
     {
-        fn observe(head: &mut _S) -> Self {
-            let __value = head.as_deref_mut();
-            let a = ::muon::observe::Observer::observe(&mut __value.a);
-            let b = ::muon::helper::Pointer::new(&mut __value.b);
-            let c = ::muon::observe::Observer::observe(&mut __value.c);
-            Self {
-                a,
-                b,
-                c,
-                __ptr: ::muon::helper::Pointer::new(head),
-                __phantom: ::std::marker::PhantomData,
+        unsafe fn observe(head: *mut _S) -> Self {
+            unsafe {
+                let __value = ::muon::helper::AsDeref::<_N>::as_deref_ptr(head);
+                let a = ::muon::observe::Observer::observe(&raw mut (*__value).a);
+                let b = ::muon::helper::Pointer::new_unchecked(&raw mut (*__value).b);
+                let c = ::muon::observe::Observer::observe(&raw mut (*__value).c);
+                Self {
+                    a,
+                    b,
+                    c,
+                    __ptr: ::muon::helper::Pointer::new_unchecked(head),
+                    __phantom: ::std::marker::PhantomData,
+                }
             }
         }
         unsafe fn relocate(this: &mut Self, head: *mut _S) {
@@ -138,13 +140,9 @@ const _: () = {
             Option<U>,
         >: ::muon::observe::SerializeObserver,
     {
-        unsafe fn flush(this: &mut Self) -> ::muon::Mutations {
-            let mutations_a = unsafe {
-                ::muon::observe::SerializeObserver::flush(&mut this.a)
-            };
-            let mutations_c = unsafe {
-                ::muon::observe::SerializeObserver::flush(&mut this.c)
-            };
+        fn flush(this: &mut Self) -> ::muon::Mutations {
+            let mutations_a = ::muon::observe::SerializeObserver::flush(&mut this.a);
+            let mutations_c = ::muon::observe::SerializeObserver::flush(&mut this.c);
             if mutations_a.is_replace() && mutations_c.is_replace() {
                 let value = ::muon::helper::QuasiObserver::untracked_ref(&*this);
                 return ::muon::Mutations::replace(value);
@@ -162,13 +160,9 @@ const _: () = {
             }
             mutations
         }
-        unsafe fn flat_flush(this: &mut Self) -> ::muon::Mutations {
-            let mutations_a = unsafe {
-                ::muon::observe::SerializeObserver::flush(&mut this.a)
-            };
-            let mutations_c = unsafe {
-                ::muon::observe::SerializeObserver::flush(&mut this.c)
-            };
+        fn flat_flush(this: &mut Self) -> ::muon::Mutations {
+            let mutations_a = ::muon::observe::SerializeObserver::flush(&mut this.a);
+            let mutations_c = ::muon::observe::SerializeObserver::flush(&mut this.c);
             let mut mutations = ::muon::Mutations::new()
                 .with_capacity(
                     !mutations_a.is_empty() as usize + !mutations_c.is_empty() as usize,

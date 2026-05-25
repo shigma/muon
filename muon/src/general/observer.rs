@@ -6,8 +6,8 @@ use std::ops::{Deref, DerefMut};
 use serde::Serialize;
 
 use crate::Mutations;
-use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
-use crate::observe::{Observer, RefObserver, SerializeObserver};
+use crate::helper::{AsDeref, AsDerefMut, AsDerefPtrExt, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
+use crate::observe::{Observer, SerializeObserver};
 
 /// A handler trait for implementing change detection strategies in [`GeneralObserver`].
 ///
@@ -144,7 +144,7 @@ where
 /// }
 ///
 /// let mut value = 123;
-/// let ob = GeneralObserver::<MyHandler<i32>, i32>::observe(&mut value);
+/// let ob = unsafe { GeneralObserver::<MyHandler<i32>, i32>::observe(&mut value) };
 /// println!("{:?}", ob); // prints: MyObserver(123)
 /// ```
 pub trait DebugHandler: GeneralHandler {
@@ -223,38 +223,19 @@ where
     H: GeneralHandler<Target = T>,
     D: Unsigned,
 {
-    fn observe(head: &mut Self::Head) -> Self {
-        let this = Self {
-            handler: H::observe((*head).as_deref()),
-            ptr: Pointer::new(head),
-            phantom: PhantomData,
-        };
-        Pointer::register_state::<_, D>(&this.ptr, &this.handler);
-        this
+    unsafe fn observe(head: *mut Self::Head) -> Self {
+        unsafe {
+            let this = Self {
+                handler: H::observe(&*head.as_deref_ptr::<D>()),
+                ptr: Pointer::new_unchecked(head),
+                phantom: PhantomData,
+            };
+            Pointer::register_state::<_, D>(&this.ptr, &this.handler);
+            this
+        }
     }
 
     unsafe fn relocate(this: &mut Self, head: *mut Self::Head) {
-        unsafe { Pointer::set_unchecked(this, head) };
-    }
-}
-
-impl<'ob, H, S: ?Sized, D, T: ?Sized> RefObserver for GeneralObserver<'ob, H, S, D>
-where
-    S: AsDeref<D, Target = T>,
-    H: GeneralHandler<Target = T>,
-    D: Unsigned,
-{
-    fn observe(head: &Self::Head) -> Self {
-        let this = Self {
-            ptr: Pointer::new(head),
-            handler: H::observe(head.as_deref()),
-            phantom: PhantomData,
-        };
-        Pointer::register_state::<_, D>(&this.ptr, &this.handler);
-        this
-    }
-
-    unsafe fn relocate(this: &mut Self, head: *const Self::Head) {
         unsafe { Pointer::set_unchecked(this, head) };
     }
 }
@@ -265,7 +246,7 @@ where
     H: SerializeHandler<Target = T>,
     D: Unsigned,
 {
-    unsafe fn flush(this: &mut Self) -> Mutations {
+    fn flush(this: &mut Self) -> Mutations {
         unsafe { this.handler.flush((*this.ptr).as_deref()) }
     }
 }

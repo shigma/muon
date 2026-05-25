@@ -84,7 +84,8 @@ where
     type Target = [O::Head];
     type Item = O;
 
-    fn observe(slice: &mut Self::Target) -> Self {
+    unsafe fn observe(target: *mut Self::Target) -> Self {
+        let slice = unsafe { &*target };
         Self {
             truncate_len: 0,
             append_index: slice.as_ref().len(),
@@ -154,7 +155,7 @@ where
         for range in inner.initialized.overlapping(&(0..append_index)).rev() {
             let end = range.end.min(append_index);
             for i in (range.start..end).rev() {
-                let mutations_i = unsafe { SerializeObserver::flush(inner.data[i].assume_init_mut()) };
+                let mutations_i = SerializeObserver::flush(unsafe { inner.data[i].assume_init_mut() });
                 is_replace &= mutations_i.is_replace();
                 mutations.insert(PathSegment::Negative(slice.len() - i), mutations_i);
             }
@@ -204,12 +205,12 @@ where
 impl<O, S: ?Sized, D, T> Observer for VecObserver<O, S, D>
 where
     D: Unsigned,
-    S: AsDerefMut<D, Target = Vec<T>>,
+    S: AsDeref<D, Target = Vec<T>>,
     O: Observer<InnerDepth = Zero, Head = T>,
 {
-    fn observe(head: &mut Self::Head) -> Self {
+    unsafe fn observe(head: *mut Self::Head) -> Self {
         Self {
-            inner: Observer::observe(head),
+            inner: unsafe { Observer::observe(head) },
         }
     }
 
@@ -225,8 +226,8 @@ where
     O: Observer<InnerDepth = Zero, Head = T> + SerializeObserver,
     T: Serialize + 'static,
 {
-    unsafe fn flush(this: &mut Self) -> Mutations {
-        unsafe { SliceObserver::flush(&mut this.inner) }
+    fn flush(this: &mut Self) -> Mutations {
+        SliceObserver::flush(&mut this.inner)
     }
 }
 

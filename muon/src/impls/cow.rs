@@ -5,7 +5,7 @@ use std::ops::{AddAssign, Deref, DerefMut};
 use crate::general::Snapshot;
 use crate::helper::{AsDeref, AsDerefMut, AsDerefPtrExt, Pointer, QuasiObserver, Succ, Unsigned, Zero};
 use crate::impls::{DerefObserver, StringObserver};
-use crate::observe::{DefaultSpec, Observer, RefObserve, RefObserver, SerializeObserver};
+use crate::observe::{DefaultSpec, Observer, RefObserve, SerializeObserver};
 use crate::{Mutations, Observe};
 
 /// Observer implementation for [`Cow<'a, T>`].
@@ -50,40 +50,43 @@ where
 
 impl<'a, B, O, D, T> Observer for CowObserver<B, O>
 where
-    B: RefObserver<InnerDepth = Succ<D>>,
+    B: Observer<InnerDepth = Succ<D>>,
     B::Head: AsDerefMut<D, Target = Cow<'a, T>>,
     O: Observer<InnerDepth = Zero, Head = T::Owned>,
     D: Unsigned,
     T: ToOwned + ?Sized + 'a,
 {
-    fn observe(head: &mut Self::Head) -> Self {
-        let inner = B::observe(head);
-        let owned = match AsDerefMut::<D>::as_deref_mut(head) {
-            Cow::Borrowed(_) => None,
-            Cow::Owned(value) => Some(O::observe(value)),
-        };
-        // B is a RefObserver so its Pointer only has shared provenance.
-        // Re-expose with mutable provenance for later Pointer::as_mut calls.
-        Pointer::set(inner.as_deref_coinductive(), &mut *head);
-        Self {
-            inner,
-            owned,
-            mutated: false,
+    unsafe fn observe(head: *mut Self::Head) -> Self {
+        unsafe {
+            let inner = B::observe(head);
+            let target = head.as_deref_ptr::<D>();
+            let owned = match &*target {
+                Cow::Borrowed(_) => None,
+                Cow::Owned(value) => Some(O::observe(target.with_addr(value as *const _ as usize).cast())),
+            };
+            Pointer::set_unchecked(inner.as_deref_coinductive(), head);
+            Self {
+                inner,
+                owned,
+                mutated: false,
+            }
         }
     }
 
     unsafe fn relocate(this: &mut Self, head: *mut Self::Head) {
-        unsafe { B::relocate(&mut this.inner, head) }
-        if let Some(owned) = &mut this.owned {
-            let target = unsafe { head.as_deref_ptr::<D>() };
-            match unsafe { &*target } {
-                Cow::Borrowed(_) => panic!("inconsistent state for CowObserver"),
-                Cow::Owned(value) => {
-                    unsafe { O::relocate(owned, target.with_addr(value as *const _ as usize).cast()) };
+        unsafe {
+            B::relocate(&mut this.inner, head);
+            if let Some(owned) = &mut this.owned {
+                let target = head.as_deref_ptr::<D>();
+                match &*target {
+                    Cow::Borrowed(_) => panic!("inconsistent state for CowObserver"),
+                    Cow::Owned(value) => {
+                        O::relocate(owned, target.with_addr(value as *const _ as usize).cast());
+                    }
                 }
             }
+            Pointer::set_unchecked(this.inner.as_deref_coinductive(), head);
         }
-        unsafe { Pointer::set_unchecked(this.inner.as_deref_coinductive(), head) };
     }
 }
 
@@ -95,29 +98,29 @@ where
     O: SerializeObserver<InnerDepth = Zero, Head = T::Owned>,
     T: ToOwned + ?Sized + 'a,
 {
-    unsafe fn flush(this: &mut Self) -> Mutations {
+    fn flush(this: &mut Self) -> Mutations {
         if let Some(owned) = this.owned.as_mut()
             && !this.mutated
         {
-            unsafe { B::flush(&mut this.inner) };
-            unsafe { O::flush(owned) }
+            B::flush(&mut this.inner);
+            O::flush(owned)
         } else {
             this.owned = None;
             this.mutated = false;
-            unsafe { B::flush(&mut this.inner) }
+            B::flush(&mut this.inner)
         }
     }
 
-    unsafe fn flat_flush(this: &mut Self) -> Mutations {
+    fn flat_flush(this: &mut Self) -> Mutations {
         if let Some(owned) = this.owned.as_mut()
             && !this.mutated
         {
-            unsafe { B::flat_flush(&mut this.inner) };
-            unsafe { O::flat_flush(owned) }
+            B::flat_flush(&mut this.inner);
+            O::flat_flush(owned)
         } else {
             this.owned = None;
             this.mutated = false;
-            unsafe { B::flat_flush(&mut this.inner) }
+            B::flat_flush(&mut this.inner)
         }
     }
 }
@@ -135,7 +138,7 @@ where
         let head = unsafe { Pointer::as_mut(self.inner.as_deref_coinductive()) };
         let cow = AsDerefMut::<D>::as_deref_mut(head);
         let owned = cow.to_mut();
-        self.owned.get_or_insert_with(|| O::observe(owned))
+        self.owned.get_or_insert_with(|| unsafe { O::observe(owned) })
     }
 }
 
@@ -478,10 +481,7 @@ mod tests {
         use std::collections::BTreeMap;
         let mut map = BTreeMap::from([(String::from("a"), Cow::<str>::Owned(String::from("hello")))]);
         let mut ob = map.__observe();
-        // to_mut() creates the inner owned StringObserver
         ob.get_mut("a").unwrap().to_mut();
-        // Flush: partial_flush relocates the CowObserver with a shared-provenance pointer.
-        // This would fail under Miri if relocate used .as_deref_mut() internally.
         let Json(mutation) = ob.flush().unwrap();
         assert_eq!(mutation, None);
     }

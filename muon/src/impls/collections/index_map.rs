@@ -189,9 +189,9 @@ where
     O::Head: Sized,
     K: Clone + Eq + Hash,
 {
-    fn observe(head: &mut Self::Head) -> Self {
+    unsafe fn observe(head: *mut Self::Head) -> Self {
         let this = Self {
-            ptr: Pointer::new(head),
+            ptr: unsafe { Pointer::new_unchecked(head) },
             state: Default::default(),
             phantom: PhantomData,
         };
@@ -240,7 +240,7 @@ where
                 .get(&key)
                 .expect("observer key not found in observed map");
             unsafe { O::relocate(&mut ob, value as *const O::Head as *mut O::Head) }
-            mutations.insert(key, unsafe { O::flush(&mut ob) });
+            mutations.insert(key, O::flush(&mut ob));
         }
         mutations
     }
@@ -254,7 +254,7 @@ where
     O::Head: Serialize + Sized + 'static,
     K: Serialize + Clone + Eq + Hash + Into<PathSegment> + 'static,
 {
-    unsafe fn flush(this: &mut Self) -> Mutations {
+    fn flush(this: &mut Self) -> Mutations {
         if !this.state.mutated {
             return unsafe { this.partial_flush() };
         }
@@ -264,7 +264,7 @@ where
         Mutations::replace((*this).untracked_ref())
     }
 
-    unsafe fn flat_flush(this: &mut Self) -> Mutations {
+    fn flat_flush(this: &mut Self) -> Mutations {
         if !this.state.mutated {
             return unsafe { this.partial_flush() };
         }
@@ -365,7 +365,7 @@ where
                 unsafe { O::relocate(ob, value) }
                 Some(ob)
             }
-            Entry::Vacant(vacant) => Some(vacant.insert(Box::new(O::observe(value)))),
+            Entry::Vacant(vacant) => Some(vacant.insert(Box::new(unsafe { O::observe(value) }))),
         }
     }
 
@@ -381,7 +381,7 @@ where
                 unsafe { O::relocate(ob, value) }
                 Some((key, ob))
             }
-            Entry::Vacant(vacant) => Some((key, vacant.insert(Box::new(O::observe(value))))),
+            Entry::Vacant(vacant) => Some((key, vacant.insert(Box::new(unsafe { O::observe(value) })))),
         }
     }
 }
@@ -426,7 +426,7 @@ where
                     unsafe { O::relocate(observer, value) }
                 }
                 Entry::Vacant(vacant) => {
-                    vacant.insert(Box::new(O::observe(value)));
+                    vacant.insert(Box::new(unsafe { O::observe(value) }));
                 }
             }
         }
@@ -633,7 +633,7 @@ where
                 unsafe { O::relocate(ob, value) }
                 Some((index, key, ob))
             }
-            Entry::Vacant(vacant) => Some((index, key, vacant.insert(Box::new(O::observe(value))))),
+            Entry::Vacant(vacant) => Some((index, key, vacant.insert(Box::new(unsafe { O::observe(value) })))),
         }
     }
 
@@ -728,7 +728,7 @@ where
                 unsafe { O::relocate(ob, value) }
                 Some((key, ob))
             }
-            Entry::Vacant(vacant) => Some((key, vacant.insert(Box::new(O::observe(value))))),
+            Entry::Vacant(vacant) => Some((key, vacant.insert(Box::new(unsafe { O::observe(value) })))),
         }
     }
 

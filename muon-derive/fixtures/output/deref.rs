@@ -52,14 +52,16 @@ const _: () = {
         O::Head: ::muon::helper::AsDerefMut<N, Target = Foo<T>>,
         N: ::muon::helper::Unsigned,
     {
-        fn observe(head: &mut O::Head) -> Self {
-            let __value = ::muon::helper::AsDerefMut::<N>::as_deref_mut(&mut *head);
-            let b = ::muon::observe::Observer::observe(&mut __value.b);
-            let a = ::muon::observe::Observer::observe(head);
-            let this = Self { a, b };
-            let ptr = O::as_deref_coinductive(&this.a);
-            ::muon::helper::Pointer::register_observer(ptr, &this.b);
-            this
+        unsafe fn observe(head: *mut O::Head) -> Self {
+            unsafe {
+                let __value = ::muon::helper::AsDeref::<N>::as_deref_ptr(head);
+                let b = ::muon::observe::Observer::observe(&raw mut (*__value).b);
+                let a = ::muon::observe::Observer::observe(head);
+                let this = Self { a, b };
+                let ptr = O::as_deref_coinductive(&this.a);
+                ::muon::helper::Pointer::register_observer(ptr, &this.b);
+                this
+            }
         }
         unsafe fn relocate(this: &mut Self, head: *mut O::Head) {
             unsafe {
@@ -79,13 +81,11 @@ const _: () = {
         N: ::muon::helper::Unsigned,
         O: ::muon::observe::SerializeObserver,
     {
-        unsafe fn flush(this: &mut Self) -> ::muon::Mutations {
-            let mutations_a = unsafe {
-                ::muon::observe::SerializeObserver::flat_flush(&mut this.a)
-            };
-            let mutations_b = unsafe {
-                ::muon::observe::SerializeObserver::flush(&mut this.b)
-            };
+        fn flush(this: &mut Self) -> ::muon::Mutations {
+            let mutations_a = ::muon::observe::SerializeObserver::flat_flush(
+                &mut this.a,
+            );
+            let mutations_b = ::muon::observe::SerializeObserver::flush(&mut this.b);
             if mutations_a.is_replace() && mutations_b.is_replace() {
                 let head = &**(*this).as_deref_coinductive();
                 let value = ::muon::helper::AsDeref::<N>::as_deref(head);
@@ -97,13 +97,11 @@ const _: () = {
             mutations.insert("b", mutations_b);
             mutations
         }
-        unsafe fn flat_flush(this: &mut Self) -> ::muon::Mutations {
-            let mutations_a = unsafe {
-                ::muon::observe::SerializeObserver::flat_flush(&mut this.a)
-            };
-            let mutations_b = unsafe {
-                ::muon::observe::SerializeObserver::flush(&mut this.b)
-            };
+        fn flat_flush(this: &mut Self) -> ::muon::Mutations {
+            let mutations_a = ::muon::observe::SerializeObserver::flat_flush(
+                &mut this.a,
+            );
+            let mutations_b = ::muon::observe::SerializeObserver::flush(&mut this.b);
             let mut mutations = ::muon::Mutations::new()
                 .with_capacity(mutations_a.len() + !mutations_b.is_empty() as usize)
                 .with_replace(mutations_a.is_replace() && mutations_b.is_replace());
@@ -129,7 +127,7 @@ const _: () = {
         type Spec = ::muon::observe::DefaultSpec;
     }
     #[automatically_derived]
-    impl<T> ::muon::helper::DerefPtr for Foo<T> {
+    unsafe impl<T> ::muon::helper::DerefPtr for Foo<T> {
         unsafe fn deref_ptr(this: *mut Self) -> *mut Self::Target {
             unsafe { &raw mut (*this).a }
         }
@@ -188,14 +186,18 @@ const _: () = {
         O::Head: ::muon::helper::AsDerefMut<N, Target = Bar>,
         N: ::muon::helper::Unsigned,
     {
-        fn observe(head: &mut O::Head) -> Self {
-            let __value = ::muon::helper::AsDerefMut::<N>::as_deref_mut(&mut *head);
-            let observer_1 = ::muon::observe::Observer::observe(&mut __value.1);
-            let observer_0 = ::muon::observe::Observer::observe(head);
-            let this = Self(observer_0, observer_1);
-            let ptr = O::as_deref_coinductive(&this.0);
-            ::muon::helper::Pointer::register_observer(ptr, &this.1);
-            this
+        unsafe fn observe(head: *mut O::Head) -> Self {
+            unsafe {
+                let __value = ::muon::helper::AsDeref::<N>::as_deref_ptr(head);
+                let observer_1 = ::muon::observe::Observer::observe(
+                    &raw mut (*__value).1,
+                );
+                let observer_0 = ::muon::observe::Observer::observe(head);
+                let this = Self(observer_0, observer_1);
+                let ptr = O::as_deref_coinductive(&this.0);
+                ::muon::helper::Pointer::register_observer(ptr, &this.1);
+                this
+            }
         }
         unsafe fn relocate(this: &mut Self, head: *mut O::Head) {
             unsafe {
@@ -213,13 +215,9 @@ const _: () = {
         N: ::muon::helper::Unsigned,
         O: ::muon::observe::SerializeObserver,
     {
-        unsafe fn flush(this: &mut Self) -> ::muon::Mutations {
-            let mutations_0 = unsafe {
-                ::muon::observe::SerializeObserver::flush(&mut this.0)
-            };
-            let mutations_1 = unsafe {
-                ::muon::observe::SerializeObserver::flush(&mut this.1)
-            };
+        fn flush(this: &mut Self) -> ::muon::Mutations {
+            let mutations_0 = ::muon::observe::SerializeObserver::flush(&mut this.0);
+            let mutations_1 = ::muon::observe::SerializeObserver::flush(&mut this.1);
             if mutations_0.is_replace() && mutations_1.is_replace() {
                 let head = &**(*this).as_deref_coinductive();
                 let value = ::muon::helper::AsDeref::<N>::as_deref(head);
@@ -233,13 +231,9 @@ const _: () = {
             mutations.insert(1usize, mutations_1);
             mutations
         }
-        unsafe fn flat_flush(this: &mut Self) -> ::muon::Mutations {
-            let mutations_0 = unsafe {
-                ::muon::observe::SerializeObserver::flush(&mut this.0)
-            };
-            let mutations_1 = unsafe {
-                ::muon::observe::SerializeObserver::flush(&mut this.1)
-            };
+        fn flat_flush(this: &mut Self) -> ::muon::Mutations {
+            let mutations_0 = ::muon::observe::SerializeObserver::flush(&mut this.0);
+            let mutations_1 = ::muon::observe::SerializeObserver::flush(&mut this.1);
             let mut mutations = ::muon::Mutations::new()
                 .with_capacity(
                     !mutations_0.is_empty() as usize + !mutations_1.is_empty() as usize,
@@ -266,7 +260,7 @@ const _: () = {
         type Spec = ::muon::observe::DefaultSpec;
     }
     #[automatically_derived]
-    impl ::muon::helper::DerefPtr for Bar {
+    unsafe impl ::muon::helper::DerefPtr for Bar {
         unsafe fn deref_ptr(this: *mut Self) -> *mut Self::Target {
             unsafe { &raw mut (*this).0 }
         }
@@ -324,9 +318,11 @@ const _: () = {
         O::Head: ::muon::helper::AsDerefMut<N, Target = Qux>,
         N: ::muon::helper::Unsigned,
     {
-        fn observe(head: &mut O::Head) -> Self {
-            let observer_0 = ::muon::observe::Observer::observe(head);
-            Self(observer_0)
+        unsafe fn observe(head: *mut O::Head) -> Self {
+            unsafe {
+                let observer_0 = ::muon::observe::Observer::observe(head);
+                Self(observer_0)
+            }
         }
         unsafe fn relocate(this: &mut Self, head: *mut O::Head) {
             unsafe {
@@ -342,11 +338,11 @@ const _: () = {
         N: ::muon::helper::Unsigned,
         O: ::muon::observe::SerializeObserver,
     {
-        unsafe fn flush(this: &mut Self) -> ::muon::Mutations {
-            unsafe { ::muon::observe::SerializeObserver::flush(&mut this.0) }
+        fn flush(this: &mut Self) -> ::muon::Mutations {
+            ::muon::observe::SerializeObserver::flush(&mut this.0)
         }
-        unsafe fn flat_flush(this: &mut Self) -> ::muon::Mutations {
-            unsafe { ::muon::observe::SerializeObserver::flat_flush(&mut this.0) }
+        fn flat_flush(this: &mut Self) -> ::muon::Mutations {
+            ::muon::observe::SerializeObserver::flat_flush(&mut this.0)
         }
     }
     #[automatically_derived]
@@ -364,7 +360,7 @@ const _: () = {
         type Spec = ::muon::observe::DefaultSpec;
     }
     #[automatically_derived]
-    impl ::muon::helper::DerefPtr for Qux {
+    unsafe impl ::muon::helper::DerefPtr for Qux {
         unsafe fn deref_ptr(this: *mut Self) -> *mut Self::Target {
             unsafe { &raw mut (*this).0 }
         }

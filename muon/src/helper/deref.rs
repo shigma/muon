@@ -38,14 +38,13 @@ use crate::helper::unsigned::{Succ, Unsigned, Zero};
 /// without creating intermediate references, which is needed for
 /// [`Observer::relocate`](crate::observe::Observer::relocate) to avoid Stacked Borrows retagging.
 ///
-/// # Implementation Contract
+/// # Safety
 ///
-/// The returned pointer MUST NOT be retagged during its construction. It is acceptable to retag
-/// `Self` (e.g., by creating `&Self` to read metadata) as long as `Self` and `Target` do not
-/// overlap in memory. For types where `Target` lives in a separate allocation (e.g., [`Box`],
-/// [`Vec`], [`Rc`]), creating `&Self` is safe since it only retags the container struct, not the
-/// heap-allocated target.
-pub trait DerefPtr: Deref {
+/// The returned pointer from [`deref_ptr`](DerefPtr::deref_ptr) must point to the same location
+/// as [`Deref::deref`] would return. Additionally, it must NOT retag the target memory during
+/// its construction. It is acceptable to retag `Self` (e.g., by creating `&Self` to read metadata)
+/// as long as `Self` and `Target` do not overlap in memory.
+pub unsafe trait DerefPtr: Deref {
     /// Returns a raw mutable pointer to the deref target.
     ///
     /// # Safety
@@ -54,43 +53,43 @@ pub trait DerefPtr: Deref {
     unsafe fn deref_ptr(this: *mut Self) -> *mut Self::Target;
 }
 
-impl<T: ?Sized> DerefPtr for &T {
+unsafe impl<T: ?Sized> DerefPtr for &T {
     unsafe fn deref_ptr(this: *mut Self) -> *mut Self::Target {
         unsafe { (*this) as *const T as *mut T }
     }
 }
 
-impl<T: ?Sized> DerefPtr for &mut T {
+unsafe impl<T: ?Sized> DerefPtr for &mut T {
     unsafe fn deref_ptr(this: *mut Self) -> *mut Self::Target {
         unsafe { *this }
     }
 }
 
-impl<T: ?Sized> DerefPtr for Box<T> {
+unsafe impl<T: ?Sized> DerefPtr for Box<T> {
     unsafe fn deref_ptr(this: *mut Self) -> *mut Self::Target {
         unsafe { (&*this).deref() as *const T as *mut T }
     }
 }
 
-impl<T: ?Sized> DerefPtr for Rc<T> {
+unsafe impl<T: ?Sized> DerefPtr for Rc<T> {
     unsafe fn deref_ptr(this: *mut Self) -> *mut Self::Target {
         unsafe { Rc::as_ptr(&*this) as *mut T }
     }
 }
 
-impl<T: ?Sized> DerefPtr for Arc<T> {
+unsafe impl<T: ?Sized> DerefPtr for Arc<T> {
     unsafe fn deref_ptr(this: *mut Self) -> *mut Self::Target {
         unsafe { Arc::as_ptr(&*this) as *mut T }
     }
 }
 
-impl<'a, B: ToOwned + ?Sized> DerefPtr for Cow<'a, B> {
+unsafe impl<'a, B: ToOwned + ?Sized> DerefPtr for Cow<'a, B> {
     unsafe fn deref_ptr(this: *mut Self) -> *mut Self::Target {
         unsafe { (*this).deref() as *const B as *mut B }
     }
 }
 
-impl<T> DerefPtr for Vec<T> {
+unsafe impl<T> DerefPtr for Vec<T> {
     unsafe fn deref_ptr(this: *mut Self) -> *mut Self::Target {
         unsafe {
             let vec = &*this;
@@ -99,7 +98,7 @@ impl<T> DerefPtr for Vec<T> {
     }
 }
 
-impl DerefPtr for String {
+unsafe impl DerefPtr for String {
     unsafe fn deref_ptr(this: *mut Self) -> *mut Self::Target {
         unsafe {
             let s = &*this;
@@ -111,19 +110,19 @@ impl DerefPtr for String {
     }
 }
 
-impl DerefPtr for OsString {
+unsafe impl DerefPtr for OsString {
     unsafe fn deref_ptr(this: *mut Self) -> *mut Self::Target {
         unsafe { (&*this).deref() as *const _ as *mut _ }
     }
 }
 
-impl DerefPtr for CString {
+unsafe impl DerefPtr for CString {
     unsafe fn deref_ptr(this: *mut Self) -> *mut Self::Target {
         unsafe { (&*this).deref() as *const _ as *mut _ }
     }
 }
 
-impl DerefPtr for PathBuf {
+unsafe impl DerefPtr for PathBuf {
     unsafe fn deref_ptr(this: *mut Self) -> *mut Self::Target {
         unsafe { (&*this).deref() as *const _ as *mut _ }
     }

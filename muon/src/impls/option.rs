@@ -8,7 +8,7 @@ use crate::Mutations;
 use crate::general::Snapshot;
 use crate::helper::macros::{spec_impl_observe, spec_impl_ref_observe};
 use crate::helper::{AsDeref, AsDerefMut, AsDerefPtrExt, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
-use crate::observe::{Observer, RefObserver, SerializeObserver};
+use crate::observe::{Observer, SerializeObserver};
 
 struct OptionObserverState<O> {
     initial: bool,
@@ -67,71 +67,39 @@ where
 impl<O, S: ?Sized, D> Observer for OptionObserver<O, S, D>
 where
     D: Unsigned,
-    S: AsDerefMut<D, Target = Option<O::Head>>,
+    S: AsDeref<D, Target = Option<O::Head>>,
     O: Observer<InnerDepth = Zero>,
     O::Head: Sized,
 {
-    fn observe(head: &mut Self::Head) -> Self {
-        let this = Self {
-            state: OptionObserverState {
-                initial: head.as_deref_mut().is_some(),
-                mutated: false,
-                inner: head.as_deref_mut().as_mut().map(O::observe),
-            },
-            ptr: Pointer::new(head),
-            phantom: PhantomData,
-        };
-        Pointer::register_state::<_, D>(&this.ptr, &this.state);
-        this
+    unsafe fn observe(head: *mut Self::Head) -> Self {
+        unsafe {
+            let target = head.as_deref_ptr::<D>();
+            let value = &*target;
+            let this = Self {
+                state: OptionObserverState {
+                    initial: value.is_some(),
+                    mutated: false,
+                    inner: value
+                        .as_ref()
+                        .map(|v| O::observe(target.with_addr(v as *const _ as usize).cast())),
+                },
+                ptr: Pointer::new_unchecked(head),
+                phantom: PhantomData,
+            };
+            Pointer::register_state::<_, D>(&this.ptr, &this.state);
+            this
+        }
     }
 
     unsafe fn relocate(this: &mut Self, head: *mut Self::Head) {
         unsafe {
             let target = head.as_deref_ptr::<D>();
             match (&mut this.state.inner, &*target) {
-                (Some(o), Some(v)) => {
-                    O::relocate(o, target.with_addr(v as *const _ as usize).cast());
-                }
+                (Some(o), Some(v)) => O::relocate(o, target.with_addr(v as *const _ as usize).cast()),
                 (None, _) => {}
                 _ => panic!("inconsistent state for OptionObserver"),
             }
             Pointer::set_unchecked(this, head);
-        }
-    }
-}
-
-impl<O, S: ?Sized, D> RefObserver for OptionObserver<O, S, D>
-where
-    D: Unsigned,
-    S: AsDeref<D, Target = Option<O::Head>>,
-    O: RefObserver<InnerDepth = Zero>,
-    O::Head: Sized,
-{
-    fn observe(head: &Self::Head) -> Self {
-        let this = Self {
-            ptr: Pointer::new(head),
-            state: OptionObserverState {
-                initial: head.as_deref().is_some(),
-                mutated: false,
-                inner: head.as_deref().as_ref().map(O::observe),
-            },
-            phantom: PhantomData,
-        };
-        Pointer::register_state::<_, D>(&this.ptr, &this.state);
-        this
-    }
-
-    unsafe fn relocate(this: &mut Self, head: *const Self::Head) {
-        unsafe {
-            Pointer::set_unchecked(this, head);
-            let target = head.as_deref_ptr::<D>();
-            match (&mut this.state.inner, &*target) {
-                (Some(o), Some(v)) => {
-                    O::relocate(o, target.with_addr(v as *const _ as usize).cast());
-                }
-                (None, _) => {}
-                _ => panic!("inconsistent state for OptionObserver"),
-            }
         }
     }
 }
@@ -143,13 +111,13 @@ where
     O: SerializeObserver<InnerDepth = Zero>,
     O::Head: Serialize + Sized + 'static,
 {
-    unsafe fn flush(this: &mut Self) -> Mutations {
+    fn flush(this: &mut Self) -> Mutations {
         let option = (*this.ptr).as_deref();
         let initial = std::mem::replace(&mut this.state.initial, option.is_some());
         let mutated = std::mem::take(&mut this.state.mutated);
         if !mutated && initial {
             // Inner must be Some when not mutated and initial was Some.
-            return unsafe { O::flush(this.state.inner.as_mut().unwrap()) };
+            return O::flush(this.state.inner.as_mut().unwrap());
         }
         this.state.inner = None;
         if initial || option.is_some() {
@@ -172,7 +140,7 @@ where
         let value = (*self.ptr).as_deref_mut().as_mut()?;
         let inner = match &mut self.state.inner {
             Some(inner) => inner,
-            slot @ None => slot.insert(O::observe(value)),
+            slot @ None => slot.insert(unsafe { O::observe(value) }),
         };
         unsafe { O::relocate(inner, value) }
         Some(inner)

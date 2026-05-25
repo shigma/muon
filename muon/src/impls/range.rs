@@ -8,7 +8,7 @@ use crate::Mutations;
 use crate::general::Snapshot;
 use crate::helper::macros::{spec_impl_observe, spec_impl_observe_from_ref, spec_impl_ref_observe};
 use crate::helper::{AsDeref, AsDerefMut, AsDerefPtrExt, Pointer, QuasiObserver, Succ, Unsigned, Zero};
-use crate::observe::{Observer, RefObserver, SerializeObserver};
+use crate::observe::{Observer, SerializeObserver};
 
 macro_rules! impl_range {
     ($($ty:ident ($($field:ident),* $(,)?) => $ob:ident, $helper_ref:ident, $helper_mut:ident;)*) => {
@@ -58,53 +58,28 @@ macro_rules! impl_range {
             impl<O, S: ?Sized, D> Observer for $ob<O, S, D>
             where
                 D: Unsigned,
-                S: AsDerefMut<D, Target = $ty<O::Head>>,
+                S: AsDeref<D, Target = $ty<O::Head>>,
                 O: Observer<InnerDepth = Zero>,
                 O::Head: Sized,
             {
-                fn observe(head: &mut Self::Head) -> Self {
-                    let value = head.as_deref_mut();
-                    let this = Self {
-                        $($field: O::observe(&mut value.$field),)*
-                        ptr: Pointer::new(head),
-                        phantom: PhantomData,
-                    };
-                    $(Pointer::register_observer(&this.ptr, &this.$field);)*
-                    this
+                unsafe fn observe(head: *mut Self::Head) -> Self {
+                    unsafe {
+                        let value = head.as_deref_ptr::<D>();
+                        let this = Self {
+                            $($field: O::observe(&raw mut (*value).$field),)*
+                            ptr: Pointer::new_unchecked(head),
+                            phantom: PhantomData,
+                        };
+                        $(Pointer::register_observer(&this.ptr, &this.$field);)*
+                        this
+                    }
                 }
 
                 unsafe fn relocate(this: &mut Self, head: *mut Self::Head) {
-                    let value = unsafe { head.as_deref_ptr::<D>() };
                     unsafe {
+                        let value = head.as_deref_ptr::<D>();
                         $(O::relocate(&mut this.$field, &raw mut (*value).$field);)*
-                    }
-                    unsafe { Pointer::set_unchecked(this, head) };
-                }
-            }
-
-            impl<O, S: ?Sized, D> RefObserver for $ob<O, S, D>
-            where
-                D: Unsigned,
-                S: AsDeref<D, Target = $ty<O::Head>>,
-                O: RefObserver<InnerDepth = Zero>,
-                O::Head: Sized,
-            {
-                fn observe(head: &Self::Head) -> Self {
-                    let value = head.as_deref();
-                    let this = Self {
-                        $($field: O::observe(&value.$field),)*
-                        ptr: Pointer::new(head),
-                        phantom: PhantomData,
-                    };
-                    $(Pointer::register_observer(&this.ptr, &this.$field);)*
-                    this
-                }
-
-                unsafe fn relocate(this: &mut Self, head: *const Self::Head) {
-                    unsafe { Pointer::set_unchecked(this, head) };
-                    let value = unsafe { head.as_deref_ptr::<D>() };
-                    unsafe {
-                        $(O::relocate(&mut this.$field, &raw const (*value).$field);)*
+                        Pointer::set_unchecked(this, head);
                     }
                 }
             }
@@ -116,9 +91,9 @@ macro_rules! impl_range {
                 O: SerializeObserver<InnerDepth = Zero>,
                 O::Head: Serialize + Sized + 'static,
             {
-                unsafe fn flush(this: &mut Self) -> Mutations {
+                fn flush(this: &mut Self) -> Mutations {
                     $(
-                        let $field = unsafe { SerializeObserver::flush(&mut this.$field).with_prefix(stringify!($field)) };
+                        let $field = SerializeObserver::flush(&mut this.$field).with_prefix(stringify!($field));
                     )*
                     if $($field.is_replace())&&* {
                         Mutations::replace((*this).untracked_ref())
@@ -129,9 +104,9 @@ macro_rules! impl_range {
                     }
                 }
 
-                unsafe fn flat_flush(this: &mut Self) -> Mutations {
+                fn flat_flush(this: &mut Self) -> Mutations {
                     $(
-                        let $field = unsafe { SerializeObserver::flush(&mut this.$field).with_prefix(stringify!($field)) };
+                        let $field = SerializeObserver::flush(&mut this.$field).with_prefix(stringify!($field));
                     )*
                     let mut mutations = Mutations::new().with_replace($($field.is_replace())&&*);
                     $(mutations.extend($field);)*
@@ -257,58 +232,30 @@ impl<O, S: ?Sized, D> Observer for RangeInclusiveObserver<O, S, D>
 where
     D: Unsigned,
     S: AsDeref<D, Target = RangeInclusive<O::Head>>,
-    O: RefObserver<InnerDepth = Zero>,
+    O: Observer<InnerDepth = Zero>,
     O::Head: Sized,
 {
-    fn observe(head: &mut Self::Head) -> Self {
-        let value = (*head).as_deref();
-        let this = Self {
-            start: O::observe(value.start()),
-            end: O::observe(value.end()),
-            ptr: Pointer::new(head),
-            phantom: PhantomData,
-        };
-        Pointer::register_observer(&this.ptr, &this.start);
-        Pointer::register_observer(&this.ptr, &this.end);
-        this
+    unsafe fn observe(head: *mut Self::Head) -> Self {
+        unsafe {
+            let value = &*head.as_deref_ptr::<D>();
+            let this = Self {
+                start: O::observe(std::ptr::from_ref(value.start()).cast_mut()),
+                end: O::observe(std::ptr::from_ref(value.end()).cast_mut()),
+                ptr: Pointer::new_unchecked(head),
+                phantom: PhantomData,
+            };
+            Pointer::register_observer(&this.ptr, &this.start);
+            Pointer::register_observer(&this.ptr, &this.end);
+            this
+        }
     }
 
     unsafe fn relocate(this: &mut Self, head: *mut Self::Head) {
-        let value = unsafe { &*head.as_deref_ptr::<D>() };
         unsafe {
-            O::relocate(&mut this.start, value.start());
-            O::relocate(&mut this.end, value.end());
-        }
-        unsafe { Pointer::set_unchecked(this, head) };
-    }
-}
-
-impl<O, S: ?Sized, D> RefObserver for RangeInclusiveObserver<O, S, D>
-where
-    D: Unsigned,
-    S: AsDeref<D, Target = RangeInclusive<O::Head>>,
-    O: RefObserver<InnerDepth = Zero>,
-    O::Head: Sized,
-{
-    fn observe(head: &Self::Head) -> Self {
-        let value = head.as_deref();
-        let this = Self {
-            ptr: Pointer::new(head),
-            start: O::observe(value.start()),
-            end: O::observe(value.end()),
-            phantom: PhantomData,
-        };
-        Pointer::register_observer(&this.ptr, &this.start);
-        Pointer::register_observer(&this.ptr, &this.end);
-        this
-    }
-
-    unsafe fn relocate(this: &mut Self, head: *const Self::Head) {
-        unsafe { Pointer::set_unchecked(this, head) };
-        let value = unsafe { &*head.as_deref_ptr::<D>() };
-        unsafe {
-            O::relocate(&mut this.start, value.start());
-            O::relocate(&mut this.end, value.end());
+            let value = &*head.as_deref_ptr::<D>();
+            O::relocate(&mut this.start, std::ptr::from_ref(value.start()).cast_mut());
+            O::relocate(&mut this.end, std::ptr::from_ref(value.end()).cast_mut());
+            Pointer::set_unchecked(this, head);
         }
     }
 }
@@ -320,9 +267,9 @@ where
     O: SerializeObserver<InnerDepth = Zero>,
     O::Head: Serialize + Sized + 'static,
 {
-    unsafe fn flush(this: &mut Self) -> Mutations {
-        let mutations_start = unsafe { SerializeObserver::flush(&mut this.start).with_prefix("start") };
-        let mutations_end = unsafe { SerializeObserver::flush(&mut this.end).with_prefix("end") };
+    fn flush(this: &mut Self) -> Mutations {
+        let mutations_start = SerializeObserver::flush(&mut this.start).with_prefix("start");
+        let mutations_end = SerializeObserver::flush(&mut this.end).with_prefix("end");
         if mutations_start.is_replace() && mutations_end.is_replace() {
             Mutations::replace((*this).untracked_ref())
         } else {
@@ -333,9 +280,9 @@ where
         }
     }
 
-    unsafe fn flat_flush(this: &mut Self) -> Mutations {
-        let mutations_start = unsafe { SerializeObserver::flush(&mut this.start).with_prefix("start") };
-        let mutations_end = unsafe { SerializeObserver::flush(&mut this.end).with_prefix("end") };
+    fn flat_flush(this: &mut Self) -> Mutations {
+        let mutations_start = SerializeObserver::flush(&mut this.start).with_prefix("start");
+        let mutations_end = SerializeObserver::flush(&mut this.end).with_prefix("end");
         let mut mutations = Mutations::new().with_replace(mutations_start.is_replace() && mutations_end.is_replace());
         mutations.extend(mutations_start);
         mutations.extend(mutations_end);

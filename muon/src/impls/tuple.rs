@@ -7,7 +7,7 @@ use serde::Serialize;
 use crate::general::Snapshot;
 use crate::helper::macros::{spec_impl_observe, spec_impl_ref_observe};
 use crate::helper::{AsDeref, AsDerefMut, AsDerefPtrExt, Pointer, QuasiObserver, Succ, Unsigned, Zero};
-use crate::observe::{DefaultSpec, Observer, RefObserve, RefObserver, SerializeObserver};
+use crate::observe::{DefaultSpec, Observer, RefObserve, SerializeObserver};
 use crate::{Mutations, Observe};
 
 /// Observer implementation for tuple `(T,)`.
@@ -47,44 +47,27 @@ where
 impl<O, S: ?Sized, D> Observer for TupleObserver<O, S, D>
 where
     D: Unsigned,
-    S: AsDerefMut<D, Target = (O::Head,)>,
+    S: AsDeref<D, Target = (O::Head,)>,
     O: Observer<InnerDepth = Zero>,
     O::Head: Sized,
 {
-    fn observe(head: &mut Self::Head) -> Self {
-        let tuple = head.as_deref_mut();
-        let ob = O::observe(&mut tuple.0);
-        let ptr = Pointer::new(head);
-        let this = Self(ob, ptr, PhantomData);
-        Pointer::register_observer(&this.1, &this.0);
-        this
+    unsafe fn observe(head: *mut Self::Head) -> Self {
+        unsafe {
+            let tuple = head.as_deref_ptr::<D>();
+            let ob = O::observe(&raw mut (*tuple).0);
+            let ptr = Pointer::new_unchecked(head);
+            let this = Self(ob, ptr, PhantomData);
+            Pointer::register_observer(&this.1, &this.0);
+            this
+        }
     }
 
     unsafe fn relocate(this: &mut Self, head: *mut Self::Head) {
-        let tuple = unsafe { head.as_deref_ptr::<D>() };
-        unsafe { O::relocate(&mut this.0, &raw mut (*tuple).0) }
-        unsafe { Pointer::set_unchecked(&this.1, head) };
-    }
-}
-
-impl<O, S: ?Sized, D> RefObserver for TupleObserver<O, S, D>
-where
-    D: Unsigned,
-    S: AsDeref<D, Target = (O::Head,)>,
-    O: RefObserver<InnerDepth = Zero>,
-    O::Head: Sized,
-{
-    fn observe(head: &Self::Head) -> Self {
-        let tuple = head.as_deref();
-        let this = Self(O::observe(&tuple.0), Pointer::new(head), PhantomData);
-        Pointer::register_observer(&this.1, &this.0);
-        this
-    }
-
-    unsafe fn relocate(this: &mut Self, head: *const Self::Head) {
-        unsafe { Pointer::set_unchecked(&this.1, head) };
-        let tuple = unsafe { head.as_deref_ptr::<D>() };
-        unsafe { O::relocate(&mut this.0, &raw const (*tuple).0) }
+        unsafe {
+            let tuple = head.as_deref_ptr::<D>();
+            O::relocate(&mut this.0, &raw mut (*tuple).0);
+            Pointer::set_unchecked(&this.1, head);
+        }
     }
 }
 
@@ -95,8 +78,8 @@ where
     O: SerializeObserver<InnerDepth = Zero>,
     O::Head: Serialize + Sized + 'static,
 {
-    unsafe fn flush(this: &mut Self) -> Mutations {
-        let mutations_0 = unsafe { SerializeObserver::flush(&mut this.0) };
+    fn flush(this: &mut Self) -> Mutations {
+        let mutations_0 = SerializeObserver::flush(&mut this.0);
         if mutations_0.is_replace() {
             Mutations::replace((*this).untracked_ref())
         } else {
@@ -264,51 +247,27 @@ macro_rules! tuple_observer {
         impl<$($o,)* S: ?Sized, D> Observer for $ty<$($o,)* S, D>
         where
             D: Unsigned,
-            S: AsDerefMut<D, Target = ($($o::Head,)*)>,
+            S: AsDeref<D, Target = ($($o::Head,)*)>,
             $($o: Observer<InnerDepth = Zero, Head: Sized>,)*
         {
-            fn observe(head: &mut Self::Head) -> Self {
-                let tuple = head.as_deref_mut();
-                let this = Self(
-                    $($o::observe(&mut tuple.$n),)*
-                    /* ptr */ Pointer::new(head),
-                    /* phantom */ PhantomData,
-                );
-                $(Pointer::register_observer(&this.$ptr, &this.$n);)*
-                this
+            unsafe fn observe(head: *mut Self::Head) -> Self {
+                unsafe {
+                    let tuple = head.as_deref_ptr::<D>();
+                    let this = Self(
+                        $($o::observe(&raw mut (*tuple).$n),)*
+                        /* ptr */ Pointer::new_unchecked(head),
+                        /* phantom */ PhantomData,
+                    );
+                    $(Pointer::register_observer(&this.$ptr, &this.$n);)*
+                    this
+                }
             }
 
             unsafe fn relocate(this: &mut Self, head: *mut Self::Head) {
-                let tuple = unsafe { head.as_deref_ptr::<D>() };
                 unsafe {
+                    let tuple = head.as_deref_ptr::<D>();
                     $($o::relocate(&mut this.$n, &raw mut (*tuple).$n);)*
-                }
-        unsafe { Pointer::set_unchecked(&this.$ptr, head) };
-            }
-        }
-
-        impl<$($o,)* S: ?Sized, D> RefObserver for $ty<$($o,)* S, D>
-        where
-            D: Unsigned,
-            S: AsDeref<D, Target = ($($o::Head,)*)>,
-            $($o: RefObserver<InnerDepth = Zero, Head: Sized>,)*
-        {
-            fn observe(head: &Self::Head) -> Self {
-                let tuple = head.as_deref();
-                let this = Self(
-                    $($o::observe(&tuple.$n),)*
-                    /* ptr */ Pointer::new(head),
-                    /* phantom */ PhantomData,
-                );
-                $(Pointer::register_observer(&this.$ptr, &this.$n);)*
-                this
-            }
-
-            unsafe fn relocate(this: &mut Self, head: *const Self::Head) {
-        unsafe { Pointer::set_unchecked(&this.$ptr, head) };
-                let tuple = unsafe { head.as_deref_ptr::<D>() };
-                unsafe {
-                    $($o::relocate(&mut this.$n, &raw const (*tuple).$n);)*
+                    Pointer::set_unchecked(&this.$ptr, head);
                 }
             }
         }
@@ -319,8 +278,8 @@ macro_rules! tuple_observer {
             S: AsDeref<D, Target = ($($o::Head,)*)>,
             $($o: SerializeObserver<InnerDepth = Zero, Head: Serialize + Sized + 'static>,)*
         {
-            unsafe fn flush(this: &mut Self) -> Mutations {
-                let mutations_tuple = ($(unsafe { SerializeObserver::flush(&mut this.$n).with_prefix($n) },)*);
+            fn flush(this: &mut Self) -> Mutations {
+                let mutations_tuple = ($(SerializeObserver::flush(&mut this.$n).with_prefix($n),)*);
                 let capacity = 0 $(+ mutations_tuple.$n.len())*;
                 if capacity == $ptr {
                     return Mutations::replace((*this).untracked_ref());

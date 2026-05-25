@@ -112,9 +112,9 @@ where
     D: Unsigned,
     S: AsDerefMut<D, Target = String>,
 {
-    fn observe(head: &mut Self::Head) -> Self {
+    unsafe fn observe(head: *mut Self::Head) -> Self {
         Self {
-            inner: Observer::observe(head),
+            inner: unsafe { Observer::observe(head) },
         }
     }
 
@@ -128,8 +128,8 @@ where
     D: Unsigned,
     S: AsDeref<D, Target = String>,
 {
-    unsafe fn flush(this: &mut Self) -> Mutations {
-        unsafe { SerializeObserver::flush(&mut this.inner) }
+    fn flush(this: &mut Self) -> Mutations {
+        SerializeObserver::flush(&mut this.inner)
     }
 }
 

@@ -12,17 +12,18 @@ use std::slice::{
 
 use crate::general::{Unsize, UnsizeObserver};
 use crate::helper::macros::delegate_methods;
-use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
+use crate::helper::{AsDeref, AsDerefMut, AsDerefPtrExt, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
 use crate::impls::slices::helper::{GetDisjointMutIndexImpl, SliceIndexImpl};
 use crate::impls::slices::range_set::RangeSet;
 use crate::impls::vec::VecObserverState;
-use crate::observe::{DefaultSpec, Observer, RefObserve, RefObserver, SerializeObserver};
+use crate::observe::{DefaultSpec, Observer, RefObserve, SerializeObserver};
 use crate::{Mutations, Observe};
 
 /// Trait for managing the internal observer storage within a slice observer.
 ///
-/// This trait abstracts over the storage and initialization of element observers, allowing
-/// [`SliceObserver`] to lazily create observers for individual elements as they are accessed.
+/// Implementors provide initialization ([`observe`](Self::observe)) and element access
+/// ([`get`](Self::get), [`get_mut`](Self::get_mut)) for the per-element observers held by
+/// [`SliceObserver`].
 pub trait SliceObserverState: Invalidate<Self::Target> + Sized {
     /// The slice-like type being observed.
     type Target: AsRef<[<Self::Item as QuasiObserver>::Head]> + ?Sized;
@@ -30,25 +31,18 @@ pub trait SliceObserverState: Invalidate<Self::Target> + Sized {
     /// The element [`Observer`] type.
     type Item: Observer<InnerDepth = Zero, Head: Sized>;
 
-    /// Creates an [`Observer`] collection for the given slice.
-    fn observe(slice: &mut Self::Target) -> Self;
+    /// Creates an [`Observer`] collection for the given target.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `target` is a valid pointer to the observed value.
+    unsafe fn observe(target: *mut Self::Target) -> Self;
 
     /// Ensures the observer(s) at `index` are initialized and returns a shared reference.
     fn get<I: SliceIndexImpl>(&self, index: I, slice: &mut Self::Target) -> Option<&I::Output<Self::Item>>;
 
     /// Ensures the observer(s) at `index` are initialized and returns a mutable reference.
     fn get_mut<I: SliceIndexImpl>(&mut self, index: I, slice: &mut Self::Target) -> Option<&mut I::Output<Self::Item>>;
-}
-
-/// Shared-reference counterpart to [`SliceObserverState`] for element [`RefObserver`] management.
-pub trait SliceRefObserverState: Invalidate<Self::Target> + Sized {
-    /// The slice-like type being observed.
-    type Target: AsRef<[<Self::Item as QuasiObserver>::Head]> + ?Sized;
-    /// The element [`RefObserver`] type.
-    type Item: RefObserver<InnerDepth = Zero, Head: Sized>;
-
-    /// Creates an [`RefObserver`] collection for the given slice.
-    fn observe(slice: &Self::Target) -> Self;
 }
 
 /// Flush logic for slice-backed observer state, parameterized by `S` and `D`.
@@ -127,7 +121,7 @@ where
         }
         for gap in self.initialized.gaps(&range) {
             for i in gap {
-                self.data[i] = MaybeUninit::new(O::observe(&mut slice[i]));
+                self.data[i] = MaybeUninit::new(unsafe { O::observe(&mut slice[i]) });
             }
         }
         for existing in self.initialized.overlapping(&range) {
@@ -182,12 +176,12 @@ where
     V: SliceObserverState,
     V::Item: Observer<InnerDepth = Zero, Head = T>,
     D: Unsigned,
-    S: AsDerefMut<D, Target = V::Target>,
+    S: AsDeref<D, Target = V::Target>,
 {
-    fn observe(head: &mut Self::Head) -> Self {
+    unsafe fn observe(head: *mut Self::Head) -> Self {
         let this = Self {
-            state: V::observe(head.as_deref_mut()),
-            ptr: Pointer::new(head),
+            state: unsafe { V::observe(head.as_deref_ptr::<D>()) },
+            ptr: unsafe { Pointer::new_unchecked(head) },
             phantom: PhantomData,
         };
         Pointer::register_state::<_, D>(&this.ptr, &this.state);
@@ -199,35 +193,13 @@ where
     }
 }
 
-impl<V, S: ?Sized, D, T> RefObserver for SliceObserver<V, S, D>
+impl<V, S: ?Sized, D, T: ?Sized> SerializeObserver for SliceObserver<V, S, D>
 where
-    V: SliceRefObserverState,
-    V::Item: RefObserver<InnerDepth = Zero, Head = T>,
+    V: SliceObserverState<Target = T> + SliceSerializeObserverState<S, D, Target = T>,
     D: Unsigned,
-    S: AsDeref<D, Target = V::Target>,
+    S: AsDeref<D, Target = T>,
 {
-    fn observe(head: &Self::Head) -> Self {
-        let this = Self {
-            ptr: Pointer::new(head),
-            state: V::observe(head.as_deref()),
-            phantom: PhantomData,
-        };
-        Pointer::register_state::<_, D>(&this.ptr, &this.state);
-        this
-    }
-
-    unsafe fn relocate(this: &mut Self, head: *const Self::Head) {
-        unsafe { Pointer::set_unchecked(this, head) };
-    }
-}
-
-impl<V, S: ?Sized, D> SerializeObserver for SliceObserver<V, S, D>
-where
-    V: SliceSerializeObserverState<S, D>,
-    D: Unsigned,
-    S: AsDeref<D, Target = V::Target>,
-{
-    unsafe fn flush(this: &mut Self) -> Mutations {
+    fn flush(this: &mut Self) -> Mutations {
         this.state.flush(&mut this.ptr)
     }
 }

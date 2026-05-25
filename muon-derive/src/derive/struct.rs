@@ -100,7 +100,7 @@ pub fn derive_observe_for_struct(
                 #field_vis #(#if_named #field_ident:)* ::muon::helper::Pointer<#field_ty>,
             });
             observe_field_stmts.extend(quote_spanned! { field_span =>
-                let #observer_ident = ::muon::helper::Pointer::new(&mut __value.#field_member);
+                let #observer_ident = ::muon::helper::Pointer::new_unchecked(&raw mut (*__value).#field_member);
             });
             relocate_stmts.extend(quote_spanned! { field_span =>
                 ::muon::helper::Pointer::set_unchecked(&this.#field_member, &raw mut (*__value).#field_member);
@@ -146,13 +146,13 @@ pub fn derive_observe_for_struct(
                 #field_vis #(#if_named #field_ident:)* #ob_field_ty,
             });
             observe_field_stmts.extend(quote_spanned! { field_span =>
-                let #observer_ident = ::muon::observe::Observer::observe(&mut __value.#field_member);
+                let #observer_ident = ::muon::observe::Observer::observe(&raw mut (*__value).#field_member);
             });
         };
 
         if field_meta.serde.flatten {
             flush_field_stmts.extend(quote_spanned! { field_span =>
-                let #mutation_ident = unsafe { ::muon::observe::SerializeObserver::flat_flush(&mut this.#field_member) };
+                let #mutation_ident = ::muon::observe::SerializeObserver::flat_flush(&mut this.#field_member);
             });
             flush_capacity.push(quote_spanned! { field_span =>
                 #mutation_ident.len()
@@ -175,7 +175,7 @@ pub fn derive_observe_for_struct(
             }
         } else {
             flush_field_stmts.extend(quote_spanned! { field_span =>
-                let #mutation_ident = unsafe { ::muon::observe::SerializeObserver::flush(&mut this.#field_member) };
+                let #mutation_ident = ::muon::observe::SerializeObserver::flush(&mut this.#field_member);
             });
             flush_capacity.push(quote_spanned! { field_span =>
                 !#mutation_ident.is_empty() as usize
@@ -287,24 +287,26 @@ pub fn derive_observe_for_struct(
             true => quote! {
                 Self {
                     #observe_fields
-                    __ptr: ::muon::helper::Pointer::new(head),
+                    __ptr: ::muon::helper::Pointer::new_unchecked(head),
                     __phantom: ::std::marker::PhantomData,
                 }
             },
             false => quote! {
                 Self (
                     #observe_fields
-                    ::muon::helper::Pointer::new(head),
+                    ::muon::helper::Pointer::new_unchecked(head),
                     ::std::marker::PhantomData,
                 )
             },
         };
 
         observer_impl = quote! {
-            fn observe(head: &mut #head) -> Self {
-                let __value = head.as_deref_mut();
-                #observe_field_stmts
-                #observer_observe_expr
+            unsafe fn observe(head: *mut #head) -> Self {
+                unsafe {
+                    let __value = ::muon::helper::AsDeref::<#depth>::as_deref_ptr(head);
+                    #observe_field_stmts
+                    #observer_observe_expr
+                }
             }
 
             unsafe fn relocate(this: &mut Self, head: *mut #head) {
@@ -399,7 +401,7 @@ pub fn derive_observe_for_struct(
 
         let prepare_value = if field_count > 1 {
             quote! {
-                let __value = ::muon::helper::AsDerefMut::<#depth>::as_deref_mut(&mut *head);
+                let __value = ::muon::helper::AsDeref::<#depth>::as_deref_ptr(head);
             }
         } else {
             quote! {}
@@ -423,11 +425,13 @@ pub fn derive_observe_for_struct(
         };
 
         observer_impl = quote! {
-            fn observe(head: &mut #inner::Head) -> Self {
-                #prepare_value
-                #observe_field_stmts
-                let #observer_ident = ::muon::observe::Observer::observe(head);
-                #observer_observe_expr
+            unsafe fn observe(head: *mut #inner::Head) -> Self {
+                unsafe {
+                    #prepare_value
+                    #observe_field_stmts
+                    let #observer_ident = ::muon::observe::Observer::observe(head);
+                    #observer_observe_expr
+                }
             }
 
             unsafe fn relocate(this: &mut Self, head: *mut #inner::Head) {
@@ -452,7 +456,7 @@ pub fn derive_observe_for_struct(
 
         input_deref_ptr_impl = quote! {
             #[automatically_derived]
-            impl #input_impl_generics ::muon::helper::DerefPtr
+            unsafe impl #input_impl_generics ::muon::helper::DerefPtr
             for #input_ident #input_type_generics
             where
                 #(#input_predicates,)*
@@ -510,7 +514,7 @@ pub fn derive_observe_for_struct(
 
     let flush_impl = if !is_named && field_count == 1 {
         quote! {
-            unsafe { ::muon::observe::SerializeObserver::flush(&mut this.0) }
+            ::muon::observe::SerializeObserver::flush(&mut this.0)
         }
     } else {
         quote! {
@@ -524,7 +528,7 @@ pub fn derive_observe_for_struct(
 
     let flat_flush_impl = if !is_named && field_count == 1 {
         quote! {
-            unsafe { ::muon::observe::SerializeObserver::flat_flush(&mut this.0) }
+            ::muon::observe::SerializeObserver::flat_flush(&mut this.0)
         }
     } else {
         quote! {
@@ -608,11 +612,11 @@ pub fn derive_observe_for_struct(
             #depth: ::muon::helper::Unsigned,
             #(#ob_field_tys: ::muon::observe::SerializeObserver,)*
         {
-            unsafe fn flush(this: &mut Self) -> ::muon::Mutations {
+            fn flush(this: &mut Self) -> ::muon::Mutations {
                 #flush_impl
             }
 
-            unsafe fn flat_flush(this: &mut Self) -> ::muon::Mutations {
+            fn flat_flush(this: &mut Self) -> ::muon::Mutations {
                 #flat_flush_impl
             }
         }

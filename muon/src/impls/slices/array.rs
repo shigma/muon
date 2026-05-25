@@ -7,9 +7,9 @@ use serde::Serialize;
 
 use crate::general::Snapshot;
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
-use crate::impls::slice::{SliceObserver, SliceObserverState, SliceRefObserverState, SliceSerializeObserverState};
+use crate::impls::slice::{SliceObserver, SliceObserverState, SliceSerializeObserverState};
 use crate::impls::slices::helper::SliceIndexImpl;
-use crate::observe::{DefaultSpec, Observer, RefObserve, RefObserver, SerializeObserver};
+use crate::observe::{DefaultSpec, Observer, RefObserve, SerializeObserver};
 use crate::{Mutations, Observe};
 
 impl<O, const N: usize> Invalidate<[O::Head; N]> for [O; N]
@@ -40,8 +40,8 @@ where
     type Target = [O::Head; N];
     type Item = O;
 
-    fn observe(slice: &mut Self::Target) -> Self {
-        slice.each_mut().map(O::observe)
+    unsafe fn observe(target: *mut Self::Target) -> Self {
+        std::array::from_fn(|i| unsafe { O::observe((target as *mut O::Head).add(i)) })
     }
 
     fn get<I: SliceIndexImpl>(&self, index: I, _slice: &mut Self::Target) -> Option<&I::Output<O>> {
@@ -53,18 +53,6 @@ where
     }
 }
 
-impl<O, const N: usize> SliceRefObserverState for [O; N]
-where
-    O: RefObserver<InnerDepth = Zero, Head: Sized>,
-{
-    type Target = [O::Head; N];
-    type Item = O;
-
-    fn observe(slice: &Self::Target) -> Self {
-        slice.each_ref().map(O::observe)
-    }
-}
-
 impl<O, const N: usize, S, D> SliceSerializeObserverState<S, D> for [O; N]
 where
     D: Unsigned,
@@ -73,12 +61,13 @@ where
     O::Head: Serialize + Sized + 'static,
 {
     type Target = [O::Head; N];
+
     fn flush(&mut self, ptr: &mut Pointer<S>) -> Mutations {
         let slice = (**ptr).as_deref();
         let mut mutations = Mutations::new();
         let mut is_replace = true;
         for (index, ob) in self.iter_mut().enumerate() {
-            let inner_mutations = unsafe { SerializeObserver::flush(ob) };
+            let inner_mutations = SerializeObserver::flush(ob);
             is_replace &= inner_mutations.is_replace();
             mutations.insert(index, inner_mutations);
         }
@@ -137,19 +126,19 @@ where
     type InnerDepth = D;
 
     fn invalidate(this: &mut Self) {
-        SliceObserver::invalidate(&mut this.inner);
+        Invalidate::invalidate(&mut this.inner.state, (*this.inner.ptr).as_deref());
     }
 }
 
 impl<const N: usize, O, S: ?Sized, D, T> Observer for ArrayObserver<N, O, S, D>
 where
     D: Unsigned,
-    S: AsDerefMut<D, Target = [T; N]>,
+    S: AsDeref<D, Target = [T; N]>,
     O: Observer<InnerDepth = Zero, Head = T>,
 {
-    fn observe(head: &mut Self::Head) -> Self {
+    unsafe fn observe(head: *mut Self::Head) -> Self {
         Self {
-            inner: Observer::observe(head),
+            inner: unsafe { Observer::observe(head) },
         }
     }
 
@@ -158,32 +147,15 @@ where
     }
 }
 
-impl<const N: usize, O, S: ?Sized, D, T> RefObserver for ArrayObserver<N, O, S, D>
-where
-    D: Unsigned,
-    S: AsDeref<D, Target = [T; N]>,
-    O: RefObserver<InnerDepth = Zero, Head = T>,
-{
-    fn observe(head: &Self::Head) -> Self {
-        Self {
-            inner: RefObserver::observe(head),
-        }
-    }
-
-    unsafe fn relocate(this: &mut Self, head: *const Self::Head) {
-        unsafe { RefObserver::relocate(&mut this.inner, head) }
-    }
-}
-
 impl<const N: usize, O, S: ?Sized, D, T> SerializeObserver for ArrayObserver<N, O, S, D>
 where
     D: Unsigned,
     S: AsDeref<D, Target = [T; N]>,
-    O: SerializeObserver<InnerDepth = Zero, Head = T>,
+    O: Observer<InnerDepth = Zero, Head = T> + SerializeObserver,
     T: Serialize + 'static,
 {
-    unsafe fn flush(this: &mut Self) -> Mutations {
-        unsafe { SliceObserver::flush(&mut this.inner) }
+    fn flush(this: &mut Self) -> Mutations {
+        SliceObserver::flush(&mut this.inner)
     }
 }
 
@@ -442,5 +414,16 @@ mod tests {
         // Second flush with no new changes returns None.
         let Json(mutation) = ob.flush().unwrap();
         assert!(mutation.is_none(), "expected None, got {mutation:?}");
+    }
+
+    #[test]
+    fn observe_provenance_write() {
+        let mut arr = [String::from("hello"), String::from("world")];
+        let mut ob = arr.__observe();
+        // Write through the observer — requires mutable provenance from observe
+        ob[0].push_str("!");
+        ob[1].push_str("?");
+        let Json(mutation) = ob.flush().unwrap();
+        assert_eq!(mutation, Some(batch!(_, append!(0, json!("!")), append!(1, json!("?")))));
     }
 }

@@ -116,7 +116,7 @@ where
             let start = (gap.start - self.offset) as usize;
             let end = (gap.end - self.offset) as usize;
             for i in start..end {
-                self.data[i] = MaybeUninit::new(O::observe(&mut slice[i]));
+                self.data[i] = MaybeUninit::new(unsafe { O::observe(&mut slice[i]) });
             }
         }
         for existing in self.initialized.overlapping(&key_range) {
@@ -214,7 +214,7 @@ where
     O: Observer<InnerDepth = Zero, Head: Sized>,
     S: AsDerefMut<D, Target = VecDeque<O::Head>>,
 {
-    fn observe(head: &mut Self::Head) -> Self {
+    unsafe fn observe(head: *mut Self::Head) -> Self {
         Self {
             state: VecDequeObserverState {
                 front_prepend_len: 0,
@@ -223,7 +223,7 @@ where
                 back_truncate_len: 0,
                 inner: UnsafeCell::new(LazyVecDeque::new()),
             },
-            ptr: Pointer::new(head),
+            ptr: unsafe { Pointer::new_unchecked(head) },
             phantom: PhantomData,
         }
     }
@@ -257,7 +257,7 @@ where
     O::Head: Serialize + 'static,
     S: AsDeref<D, Target = VecDeque<O::Head>>,
 {
-    unsafe fn flush(this: &mut Self) -> Mutations {
+    fn flush(this: &mut Self) -> Mutations {
         let deque = (*this.ptr).as_deref();
         let len = deque.len();
         let front_prepend_len = core::mem::replace(&mut this.state.front_prepend_len, 0);
@@ -313,7 +313,7 @@ where
             let end = ((range.end - offset) as usize).min(back_boundary);
             for i in (start..end).rev() {
                 let ob = unsafe { (*contiguous)[i].assume_init_mut() };
-                let mutations_i = unsafe { SerializeObserver::flush(ob) };
+                let mutations_i = SerializeObserver::flush(ob);
                 is_replace &= mutations_i.is_replace();
                 mutations.insert(PathSegment::Negative(len - i), mutations_i);
             }

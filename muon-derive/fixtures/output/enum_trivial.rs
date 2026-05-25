@@ -59,15 +59,17 @@ const _: () = {
     #[automatically_derived]
     impl<'ob, S: ?Sized, N> ::muon::observe::Observer for FooObserver<'ob, S, N>
     where
-        S: ::muon::helper::AsDerefMut<N, Target = Foo>,
+        S: ::muon::helper::AsDeref<N, Target = Foo>,
         N: ::muon::helper::Unsigned,
     {
-        fn observe(head: &mut S) -> Self {
-            let __value = head.as_deref_mut();
-            Self {
-                initial: FooObserverInitial::new(__value),
-                ptr: ::muon::helper::Pointer::new(head),
-                phantom: ::std::marker::PhantomData,
+        unsafe fn observe(head: *mut S) -> Self {
+            unsafe {
+                let __ptr = ::muon::helper::AsDerefPtrExt::as_deref_ptr::<N>(head);
+                Self {
+                    initial: FooObserverInitial::new(&*__ptr),
+                    ptr: ::muon::helper::Pointer::new_unchecked(head),
+                    phantom: ::std::marker::PhantomData,
+                }
             }
         }
         unsafe fn relocate(this: &mut Self, head: *mut S) {
@@ -80,7 +82,7 @@ const _: () = {
         S: ::muon::helper::AsDeref<N, Target = Foo>,
         N: ::muon::helper::Unsigned,
     {
-        unsafe fn flush(this: &mut Self) -> ::muon::Mutations {
+        fn flush(this: &mut Self) -> ::muon::Mutations {
             let value = this.ptr.as_deref();
             let initial = this.initial;
             this.initial = FooObserverInitial::new(value);
@@ -91,7 +93,7 @@ const _: () = {
                 _ => ::muon::Mutations::replace(value),
             }
         }
-        unsafe fn flat_flush(this: &mut Self) -> ::muon::Mutations {
+        fn flat_flush(this: &mut Self) -> ::muon::Mutations {
             let value = this.ptr.as_deref();
             let initial = this.initial;
             this.initial = FooObserverInitial::new(value);

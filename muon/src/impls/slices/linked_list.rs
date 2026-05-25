@@ -100,13 +100,13 @@ where
     O: Observer<InnerDepth = Zero, Head: Sized>,
     S: AsDerefMut<D, Target = LinkedList<O::Head>>,
 {
-    fn observe(head: &mut Self::Head) -> Self {
+    unsafe fn observe(head: *mut Self::Head) -> Self {
         Self {
             state: LinkedListObserverState {
                 front: LinkedListObserverSideState::new(),
                 back: LinkedListObserverSideState::new(),
             },
-            ptr: Pointer::new(head),
+            ptr: unsafe { Pointer::new_unchecked(head) },
             phantom: PhantomData,
         }
     }
@@ -140,7 +140,7 @@ where
     O::Head: Serialize + 'static,
     S: AsDeref<D, Target = LinkedList<O::Head>>,
 {
-    unsafe fn flush(this: &mut Self) -> Mutations {
+    fn flush(this: &mut Self) -> Mutations {
         let list = (*this.ptr).as_deref();
         let len = list.len();
         let front_append = core::mem::replace(&mut this.state.front.append_len, 0);
@@ -202,7 +202,7 @@ where
         // Process back_inner: back_inner[j] is at absolute position len - back_append - 1 - j
         //   → neg_idx = back_append + 1 + j
         for (j, ob) in back_inner.iter_mut().enumerate() {
-            let mutations_j = unsafe { SerializeObserver::flush(ob) };
+            let mutations_j = SerializeObserver::flush(ob);
             is_replace &= mutations_j.is_replace();
             mutations.insert(PathSegment::Negative(back_append + 1 + j), mutations_j);
         }
@@ -210,7 +210,7 @@ where
         // Process front_inner: front_inner[k] is at absolute position front_append + k
         //   → neg_idx = len - front_append - k
         for (k, ob) in front_inner.iter_mut().enumerate().rev() {
-            let mutations_k = unsafe { SerializeObserver::flush(ob) };
+            let mutations_k = SerializeObserver::flush(ob);
             is_replace &= mutations_k.is_replace();
             mutations.insert(PathSegment::Negative(len - front_append - k), mutations_k);
         }
@@ -261,7 +261,7 @@ impl<'a, O: Observer<InnerDepth = Zero, Head: Sized>> Iterator for IterMut<'a, O
         }
         if self.gap.len() > self.back_skip {
             let value = self.gap.next().unwrap();
-            let ob = O::observe(value);
+            let ob = unsafe { O::observe(value) };
             let dest = unsafe { &mut *self.front_dest };
             dest.push_back(ob);
             return dest.back_mut();
@@ -301,7 +301,7 @@ impl<'a, O: Observer<InnerDepth = Zero, Head: Sized>> DoubleEndedIterator for It
         }
         if self.gap.len() > self.front_skip {
             let value = self.gap.next_back().unwrap();
-            let ob = O::observe(value);
+            let ob = unsafe { O::observe(value) };
             let dest = unsafe { &mut *self.back_dest };
             dest.push_back(ob);
             return dest.back_mut();
@@ -336,14 +336,14 @@ where
         this.append_len += 1;
         let this_inner = this.inner.get_mut();
         if !this_inner.is_empty() {
-            this_inner.push_front(O::observe(value));
+            this_inner.push_front(unsafe { O::observe(value) });
         }
     }
 
     #[rustversion::since(1.95)]
     fn push_side_mut<'a>(this: &'a mut LinkedListObserverSideState<O>, value: &mut O::Head) -> &'a mut O {
         this.append_len += 1;
-        this.inner.get_mut().push_front_mut(O::observe(value))
+        this.inner.get_mut().push_front_mut(unsafe { O::observe(value) })
     }
 
     fn pop_side(this: &mut LinkedListObserverSideState<O>, other: &mut LinkedListObserverSideState<O>, len: usize) {
@@ -423,7 +423,7 @@ where
             return other_inner.back_mut();
         }
         let value = list.front_mut().unwrap();
-        this_inner.push_front(O::observe(value));
+        this_inner.push_front(unsafe { O::observe(value) });
         this_inner.front_mut()
     }
 
@@ -445,7 +445,7 @@ where
             return other_inner.back_mut();
         }
         let value = list.back_mut().unwrap();
-        this_inner.push_front(O::observe(value));
+        this_inner.push_front(unsafe { O::observe(value) });
         this_inner.front_mut()
     }
 

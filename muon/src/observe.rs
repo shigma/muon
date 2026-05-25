@@ -66,7 +66,7 @@ pub trait Observe {
 /// See also: [`Observe`].
 pub trait RefObserve {
     /// The default observer implementation for `&Self`.
-    type Observer<'ob, S, D>: RefObserver<Head = S, InnerDepth = D>
+    type Observer<'ob, S, D>: Observer<Head = S, InnerDepth = D>
     where
         Self: 'ob,
         D: Unsigned,
@@ -100,7 +100,7 @@ pub trait ObserveExt: Observe {
     /// This is a convenience method that calls [`Observer::observe`] with the appropriate type
     /// parameters automatically inferred.
     fn __observe<'ob>(&'ob mut self) -> Self::Observer<'ob, Self, Zero> {
-        Observer::observe(self)
+        unsafe { Observer::observe(self) }
     }
 }
 
@@ -169,9 +169,13 @@ pub trait Observer: QuasiObserver<Target = Pointer<<Self as QuasiObserver>::Head
     /// use muon::observe::Observer;
     ///
     /// let mut value = 42;
-    /// let observer = ShallowObserver::<i32>::observe(&mut value);
+    /// let observer = unsafe { ShallowObserver::<i32>::observe(&mut value) };
     /// ```
-    fn observe(head: &mut Self::Head) -> Self;
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `head` is a valid pointer to the observed value.
+    unsafe fn observe(head: *mut Self::Head) -> Self;
 
     /// Updates the observer's internal pointer after the observed value has moved.
     ///
@@ -192,31 +196,6 @@ pub trait Observer: QuasiObserver<Target = Pointer<<Self as QuasiObserver>::Head
     unsafe fn relocate(this: &mut Self, head: *mut Self::Head);
 }
 
-/// Shared-reference counterpart to [`Observer`].
-///
-/// While [`Observer`] takes `&mut Self::Head` (write provenance), `RefObserver` takes
-/// `&Self::Head` (shared provenance). This is used for types that only provide shared access
-/// to their inner data (e.g., [`Rc<T>`](std::rc::Rc), [`Arc<T>`](std::sync::Arc), `&T`).
-///
-/// See [`Observer`] for documentation on the lifecycle methods and safety requirements.
-pub trait RefObserver: QuasiObserver<Target = Pointer<<Self as QuasiObserver>::Head>> + Sized {
-    /// Creates a new observer for the given value via shared reference.
-    ///
-    /// Unlike [`Observer::observe`], this accepts `&Self::Head` instead of `&mut Self::Head`,
-    /// storing a shared-provenance pointer internally.
-    fn observe(head: &Self::Head) -> Self;
-
-    /// Updates the observer's internal pointer after the observed value has moved.
-    ///
-    /// See [`Observer::relocate`] for details. The only difference is that `head` is a
-    /// `*const` pointer, maintaining shared provenance.
-    ///
-    /// ## Safety
-    ///
-    /// Same requirements as [`Observer::relocate`].
-    unsafe fn relocate(this: &mut Self, head: *const Self::Head);
-}
-
 /// Extends [`Observer`] with the ability to flush recorded mutations as serializable values.
 ///
 /// This trait uses type-erased serialization: mutation values are stored as
@@ -233,11 +212,7 @@ pub trait SerializeObserver: QuasiObserver<Target = Pointer<<Self as QuasiObserv
     /// [`Replace`](crate::MutationKind::Replace), the observer should collapse them into a
     /// single whole-value [`Replace`](crate::MutationKind::Replace). This applies to structs,
     /// tuples, arrays, and slices.
-    ///
-    /// ## Safety
-    ///
-    /// The observer must contain a valid pointer.
-    unsafe fn flush(this: &mut Self) -> Mutations;
+    fn flush(this: &mut Self) -> Mutations;
 
     /// Flushes mutations for a `#[serde(flatten)]` field.
     ///
@@ -258,11 +233,7 @@ pub trait SerializeObserver: QuasiObserver<Target = Pointer<<Self as QuasiObserv
     /// [`DerefObserver`](crate::impls::DerefObserver),
     /// [`CowObserver`](crate::impls::CowObserver),
     /// [`NewtypeObserver`](crate::impls::NewtypeObserver)) implement this method.
-    ///
-    /// ## Safety
-    ///
-    /// Same as [`flush`](Self::flush).
-    unsafe fn flat_flush(_this: &mut Self) -> Mutations {
+    fn flat_flush(_this: &mut Self) -> Mutations {
         panic!("flat_flush can only be called on structs and maps")
     }
 }
@@ -276,14 +247,14 @@ pub trait SerializeObserverExt: SerializeObserver {
     ///
     /// This is a convenience method for [`SerializeObserver::flush`].
     fn flush<A: Adapter>(&mut self) -> Result<A, A::Error> {
-        A::from_mutations(unsafe { SerializeObserver::flush(self) })
+        A::from_mutations(SerializeObserver::flush(self))
     }
 
     /// Collects flattened mutations using the specified adapter.
     ///
     /// This is a convenience method for [`SerializeObserver::flat_flush`].
     fn flat_flush<A: Adapter>(&mut self) -> Result<A, A::Error> {
-        A::from_mutations(unsafe { SerializeObserver::flat_flush(self) })
+        A::from_mutations(SerializeObserver::flat_flush(self))
     }
 }
 
@@ -314,7 +285,7 @@ pub struct DefaultSpec;
 ///   layers between `S` and `T`).
 pub type DefaultObserver<'ob, T, S = T, D = Zero> = <T as Observe>::Observer<'ob, S, D>;
 
-/// Resolves the concrete [`RefObserver`] type for a given [`RefObserve`] type.
+/// Resolves the concrete [`Observer`] type for a given [`RefObserve`] type.
 ///
 /// This is a convenience alias used primarily by the derive macro to refer to field observer types
 /// without repeating the full associated type syntax.

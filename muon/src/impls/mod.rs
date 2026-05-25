@@ -32,7 +32,7 @@ mod weak;
 pub use bound::BoundObserver;
 pub use collections::*;
 pub use cow::CowObserver;
-pub use deref::{DerefMutObserver, DerefObserver};
+pub use deref::DerefObserver;
 pub use newtype::NewtypeObserver;
 pub use option::OptionObserver;
 pub use slices::*;
