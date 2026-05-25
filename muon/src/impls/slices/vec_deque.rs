@@ -212,7 +212,7 @@ impl<'ob, O, S: ?Sized, D> Observer for VecDequeObserver<'ob, O, S, D>
 where
     D: Unsigned,
     O: Observer<InnerDepth = Zero, Head: Sized>,
-    S: AsDerefMut<D, Target = VecDeque<O::Head>>,
+    S: AsDeref<D, Target = VecDeque<O::Head>>,
 {
     unsafe fn observe(head: *mut Self::Head) -> Self {
         Self {
@@ -253,7 +253,7 @@ impl<T: Serialize> Serialize for AppendTail<T> {
 impl<'ob, O, S: ?Sized, D> SerializeObserver for VecDequeObserver<'ob, O, S, D>
 where
     D: Unsigned,
-    O: Observer<InnerDepth = Zero, Head: Sized> + SerializeObserver,
+    O: SerializeObserver<InnerDepth = Zero, Head: Sized>,
     O::Head: Serialize + 'static,
     S: AsDeref<D, Target = VecDeque<O::Head>>,
 {
@@ -1305,8 +1305,8 @@ mod tests {
     fn index_returns_inner_observer() {
         let mut deque = VecDeque::from(["hello".to_string(), "world".to_string()]);
         let mut ob = deque.__observe();
-        assert_eq!(ob[0], "hello");
-        assert_eq!(ob[1], "world");
+        assert_eq!(*ob[0].untracked_ref(), "hello");
+        assert_eq!(*ob[1].untracked_ref(), "world");
         let Json(mutation) = ob.flush().unwrap();
         assert_eq!(mutation, None);
     }
@@ -1444,7 +1444,7 @@ mod tests {
         ob.push_back("cd".to_string());
         let Json(mutation) = ob.flush().unwrap();
         assert!(mutation.is_some());
-        assert_eq!(ob[2], "cd");
+        assert_eq!(*ob[2].untracked_ref(), "cd");
         let Json(mutation) = ob.flush().unwrap();
         assert_eq!(mutation, None);
     }

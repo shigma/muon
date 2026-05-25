@@ -126,7 +126,7 @@ where
 impl<'ob, S: ?Sized, D> Observer for PathBufObserver<'ob, S, D>
 where
     D: Unsigned,
-    S: AsDerefMut<D, Target = PathBuf>,
+    S: AsDeref<D, Target = PathBuf>,
 {
     unsafe fn observe(head: *mut Self::Head) -> Self {
         Self {

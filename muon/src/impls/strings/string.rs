@@ -1,6 +1,5 @@
 //! Observer implementation for [`String`].
 
-use std::borrow::Cow;
 use std::collections::TryReserveError;
 use std::fmt::{Debug, Display, Write};
 use std::ops::{AddAssign, Bound, Deref, DerefMut, Index, IndexMut, RangeBounds};
@@ -110,7 +109,7 @@ where
 impl<'ob, S: ?Sized, D> Observer for StringObserver<'ob, S, D>
 where
     D: Unsigned,
-    S: AsDerefMut<D, Target = String>,
+    S: AsDeref<D, Target = String>,
 {
     unsafe fn observe(head: *mut Self::Head) -> Self {
         Self {
@@ -367,34 +366,6 @@ where
     }
 }
 
-macro_rules! generic_impl_partial_eq {
-    ($($(#[$meta:meta])* impl $([$($gen:tt)*])? PartialEq<$ty:ty> for String);* $(;)?) => {
-        $(
-            $(#[$meta])*
-            impl<'ob, $($($gen)*,)? S, D> PartialEq<$ty> for StringObserver<'ob, S, D>
-            where
-                D: Unsigned,
-                S: AsDeref<D, Target = String>,
-                String: PartialEq<$ty>,
-            {
-                fn eq(&self, other: &$ty) -> bool {
-                    self.untracked_ref().eq(other)
-                }
-            }
-        )*
-    };
-}
-
-generic_impl_partial_eq! {
-    impl PartialEq<String> for String;
-    impl ['a, U: ?Sized] PartialEq<&'a U> for String;
-    impl ['a, U: ToOwned + ?Sized] PartialEq<Cow<'a, U>> for String;
-    #[rustversion::since(1.91)]
-    impl PartialEq<std::path::Path> for String;
-    #[rustversion::since(1.91)]
-    impl PartialEq<std::path::PathBuf> for String;
-}
-
 impl<'ob, S1, S2, D1, D2> PartialEq<StringObserver<'ob, S2, D2>> for StringObserver<'ob, S1, D1>
 where
     D1: Unsigned,
@@ -412,16 +383,6 @@ where
     D: Unsigned,
     S: AsDeref<D, Target = String>,
 {
-}
-
-impl<'ob, S, D> PartialOrd<String> for StringObserver<'ob, S, D>
-where
-    D: Unsigned,
-    S: AsDeref<D, Target = String>,
-{
-    fn partial_cmp(&self, other: &String) -> Option<std::cmp::Ordering> {
-        self.untracked_ref().partial_cmp(other)
-    }
 }
 
 impl<'ob, S1, S2, D1, D2> PartialOrd<StringObserver<'ob, S2, D2>> for StringObserver<'ob, S1, D1>

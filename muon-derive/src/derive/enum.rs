@@ -132,11 +132,11 @@ pub fn derive_observe_for_enum(
                 variant_fields.extend(quote! {
                     #(#if_named #field_ident:)* ::muon::helper::Pointer<#field_ty>,
                 });
-            observe_fields.extend(quote_spanned! { field_span =>
-                #(#if_named #field_ident:)* ::muon::helper::Pointer::new_unchecked(
-                    __ptr.with_addr(#observe_ident as *const _ as usize).cast(),
-                ),
-            });
+                observe_fields.extend(quote_spanned! { field_span =>
+                    #(#if_named #field_ident:)* ::muon::helper::Pointer::new_unchecked(
+                        __ptr.with_addr(#observe_ident as *const _ as usize).cast(),
+                    ),
+                });
                 relocate_stmts.extend(quote_spanned! { field_span =>
                     ::muon::helper::Pointer::set(#ob_ident, #value_ident);
                 });

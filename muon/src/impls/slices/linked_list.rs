@@ -98,7 +98,7 @@ impl<'ob, O, S: ?Sized, D> Observer for LinkedListObserver<'ob, O, S, D>
 where
     D: Unsigned,
     O: Observer<InnerDepth = Zero, Head: Sized>,
-    S: AsDerefMut<D, Target = LinkedList<O::Head>>,
+    S: AsDeref<D, Target = LinkedList<O::Head>>,
 {
     unsafe fn observe(head: *mut Self::Head) -> Self {
         Self {
@@ -136,7 +136,7 @@ impl<T: Serialize> Serialize for AppendTail<T> {
 impl<'ob, O, S: ?Sized, D> SerializeObserver for LinkedListObserver<'ob, O, S, D>
 where
     D: Unsigned,
-    O: Observer<InnerDepth = Zero, Head: Sized> + SerializeObserver,
+    O: SerializeObserver<InnerDepth = Zero, Head: Sized>,
     O::Head: Serialize + 'static,
     S: AsDeref<D, Target = LinkedList<O::Head>>,
 {

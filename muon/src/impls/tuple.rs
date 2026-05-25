@@ -100,18 +100,6 @@ where
     }
 }
 
-impl<O, S: ?Sized, D, U> PartialEq<(U,)> for TupleObserver<O, S, D>
-where
-    O: QuasiObserver<Target: Deref<Target: AsDeref<O::InnerDepth>>>,
-    D: Unsigned,
-    S: AsDeref<D>,
-    S::Target: PartialEq<(U,)>,
-{
-    fn eq(&self, other: &(U,)) -> bool {
-        self.untracked_ref().eq(other)
-    }
-}
-
 impl<O1, O2, S1: ?Sized, S2: ?Sized, D1, D2> PartialEq<TupleObserver<O2, S2, D2>> for TupleObserver<O1, S1, D1>
 where
     O1: QuasiObserver<Target: Deref<Target: AsDeref<O1::InnerDepth>>>,
@@ -134,18 +122,6 @@ where
     S: AsDeref<D>,
     S::Target: Eq,
 {
-}
-
-impl<O, S: ?Sized, D, U> PartialOrd<(U,)> for TupleObserver<O, S, D>
-where
-    O: QuasiObserver<Target: Deref<Target: AsDeref<O::InnerDepth>>>,
-    D: Unsigned,
-    S: AsDeref<D>,
-    S::Target: PartialOrd<(U,)>,
-{
-    fn partial_cmp(&self, other: &(U,)) -> Option<std::cmp::Ordering> {
-        self.untracked_ref().partial_cmp(other)
-    }
 }
 
 impl<O1, O2, S1: ?Sized, S2: ?Sized, D1, D2> PartialOrd<TupleObserver<O2, S2, D2>> for TupleObserver<O1, S1, D1>

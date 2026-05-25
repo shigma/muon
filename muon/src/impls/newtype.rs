@@ -340,30 +340,6 @@ macro_rules! impl_newtype {
                 self.0.eq_snapshot(snapshot)
             }
         }
-
-        impl<O, S: ?Sized, D, U> PartialEq<$wrapper<U>> for NewtypeObserver<O, S, D>
-        where
-            O: QuasiObserver<Target: Deref<Target: AsDeref<O::InnerDepth>>>,
-            D: Unsigned,
-            S: AsDeref<D>,
-            S::Target: PartialEq<$wrapper<U>>,
-        {
-            fn eq(&self, other: &$wrapper<U>) -> bool {
-                self.untracked_ref().eq(other)
-            }
-        }
-
-        impl<O, S: ?Sized, D, U> PartialOrd<$wrapper<U>> for NewtypeObserver<O, S, D>
-        where
-            O: QuasiObserver<Target: Deref<Target: AsDeref<O::InnerDepth>>>,
-            D: Unsigned,
-            S: AsDeref<D>,
-            S::Target: PartialOrd<$wrapper<U>>,
-        {
-            fn partial_cmp(&self, other: &$wrapper<U>) -> Option<std::cmp::Ordering> {
-                self.untracked_ref().partial_cmp(other)
-            }
-        }
     };
 }
 

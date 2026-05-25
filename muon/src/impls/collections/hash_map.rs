@@ -204,7 +204,7 @@ impl<K, O, S: ?Sized, D> HashMapObserver<K, O, S, D>
 where
     D: Unsigned,
     S: AsDeref<D, Target = HashMap<K, O::Head>>,
-    O: Observer<InnerDepth = Zero> + SerializeObserver,
+    O: SerializeObserver<InnerDepth = Zero>,
     O::Head: Serialize + Sized + 'static,
     K: Serialize + Clone + Eq + Hash + Into<PathSegment> + 'static,
 {
@@ -246,7 +246,7 @@ impl<K, O, S: ?Sized, D> SerializeObserver for HashMapObserver<K, O, S, D>
 where
     D: Unsigned,
     S: AsDeref<D, Target = HashMap<K, O::Head>>,
-    O: Observer<InnerDepth = Zero> + SerializeObserver,
+    O: SerializeObserver<InnerDepth = Zero>,
     O::Head: Serialize + Sized + 'static,
     K: Serialize + Clone + Eq + Hash + Into<PathSegment> + 'static,
 {

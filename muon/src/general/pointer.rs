@@ -49,7 +49,7 @@ impl<T: ?Sized> GeneralHandler for PointerHandler<T> {
 }
 
 impl<T: ?Sized> ReplaceHandler for PointerHandler<T> {
-    unsafe fn is_replace(&self, value: &T) -> bool {
+    fn is_replace(&self, value: &T) -> bool {
         !std::ptr::eq(
             value,
             self.ptr

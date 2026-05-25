@@ -114,11 +114,9 @@ impl<O, S, D> SliceSerializeObserverState<S, D> for VecObserverState<O>
 where
     D: Unsigned,
     S: AsDeref<D, Target = [O::Head]> + ?Sized,
-    O: Observer<InnerDepth = Zero> + SerializeObserver,
+    O: SerializeObserver<InnerDepth = Zero>,
     O::Head: Serialize + Sized + 'static,
 {
-    type Target = [O::Head];
-
     fn flush(&mut self, ptr: &mut Pointer<S>) -> Mutations {
         let slice = (**ptr).as_deref();
         let append_index = core::mem::replace(&mut self.append_index, slice.len());
@@ -223,7 +221,7 @@ impl<O, S: ?Sized, D, T> SerializeObserver for VecObserver<O, S, D>
 where
     D: Unsigned,
     S: AsDeref<D, Target = Vec<T>>,
-    O: Observer<InnerDepth = Zero, Head = T> + SerializeObserver,
+    O: SerializeObserver<InnerDepth = Zero, Head = T>,
     T: Serialize + 'static,
 {
     fn flush(this: &mut Self) -> Mutations {
@@ -515,31 +513,6 @@ where
     }
 }
 
-macro_rules! generic_impl_partial_eq {
-    ($(impl $([$($gen:tt)*])? PartialEq<$ty:ty> for Vec<_>);* $(;)?) => {
-        $(
-            impl<$($($gen)*,)? O, S: ?Sized, D> PartialEq<$ty> for VecObserver<O, S, D>
-            where
-                D: Unsigned,
-                S: AsDeref<D, Target = Vec<O::Head>>,
-                O: Observer<InnerDepth = Zero, Head: Sized>,
-                Vec<O::Head>: PartialEq<$ty>,
-            {
-                fn eq(&self, other: &$ty) -> bool {
-                    self.untracked_ref().eq(other)
-                }
-            }
-        )*
-    };
-}
-
-generic_impl_partial_eq! {
-    impl [U] PartialEq<Vec<U>> for Vec<_>;
-    impl [U] PartialEq<[U]> for Vec<_>;
-    impl ['a, U] PartialEq<&'a U> for Vec<_>;
-    impl ['a, U] PartialEq<&'a mut U> for Vec<_>;
-}
-
 impl<O1, O2, S1: ?Sized, S2: ?Sized, D1, D2> PartialEq<VecObserver<O2, S2, D2>> for VecObserver<O1, S1, D1>
 where
     D1: Unsigned,
@@ -561,18 +534,6 @@ where
     S: AsDeref<D, Target = Vec<O::Head>>,
     O: Observer<InnerDepth = Zero, Head: Sized + Eq>,
 {
-}
-
-impl<O, S: ?Sized, D, U> PartialOrd<Vec<U>> for VecObserver<O, S, D>
-where
-    D: Unsigned,
-    S: AsDeref<D, Target = Vec<O::Head>>,
-    O: Observer<InnerDepth = Zero, Head: Sized>,
-    Vec<O::Head>: PartialOrd<Vec<U>>,
-{
-    fn partial_cmp(&self, other: &Vec<U>) -> Option<std::cmp::Ordering> {
-        self.untracked_ref().partial_cmp(other)
-    }
 }
 
 impl<O1, O2, S1: ?Sized, S2: ?Sized, D1, D2> PartialOrd<VecObserver<O2, S2, D2>> for VecObserver<O1, S1, D1>
@@ -739,11 +700,11 @@ mod tests {
     fn index_by_usize_1() {
         let mut vec: Vec<i32> = vec![1, 2];
         let mut ob = vec.__observe();
-        assert_eq!(ob[0], 1);
+        assert_eq!(*ob[0].untracked_ref(), 1);
         ob.reserve(4); // force reallocation
         *ob[0].tracked_mut() = 99;
         ob.reserve(64); // force reallocation
-        assert_eq!(ob[0], 99);
+        assert_eq!(*ob[0].untracked_ref(), 99);
         let Json(mutation) = ob.flush().unwrap();
         assert_eq!(mutation, Some(replace!(-2, json!(99))));
     }
@@ -793,8 +754,7 @@ mod tests {
             *slice[0].tracked_mut() = 222;
             *slice[1].tracked_mut() = 333;
         }
-        assert_eq!(ob, vec![1, 222, 333, 4]);
-        assert_eq!(&ob[..], &[1, 222, 333, 4]);
+        assert_eq!(*ob.untracked_ref(), vec![1, 222, 333, 4]);
         let Json(mutation) = ob.flush().unwrap();
         assert_eq!(
             mutation,
@@ -828,7 +788,7 @@ mod tests {
         assert!(mutation.is_some()); // Truncate(1) + Append(["cd"])
 
         // Next cycle: element 2 should have a fresh observer.
-        assert_eq!(ob[2], "cd");
+        assert_eq!(*ob[2].untracked_ref(), "cd");
         let Json(mutation) = ob.flush().unwrap();
         assert_eq!(mutation, None);
     }
@@ -839,7 +799,7 @@ mod tests {
         let mut ob = vec.__observe();
         let removed = ob.swap_remove(1);
         assert_eq!(removed, 2);
-        assert_eq!(ob, vec![1, 4, 3]);
+        assert_eq!(*ob.untracked_ref(), vec![1, 4, 3]);
         let Json(mutation) = ob.flush().unwrap();
         assert_eq!(mutation, Some(batch!(_, truncate!(_, 3), append!(_, json!([4, 3])))));
     }
@@ -849,7 +809,7 @@ mod tests {
         let mut vec = vec![1, 2, 3];
         let mut ob = vec.__observe();
         ob.insert(1, 99);
-        assert_eq!(ob, vec![1, 99, 2, 3]);
+        assert_eq!(*ob.untracked_ref(), vec![1, 99, 2, 3]);
         let Json(mutation) = ob.flush().unwrap();
         assert_eq!(
             mutation,
@@ -863,7 +823,7 @@ mod tests {
         let mut ob = vec.__observe();
         let removed = ob.remove(1);
         assert_eq!(removed, 2);
-        assert_eq!(ob, vec![1, 3, 4]);
+        assert_eq!(*ob.untracked_ref(), vec![1, 3, 4]);
         let Json(mutation) = ob.flush().unwrap();
         assert_eq!(mutation, Some(batch!(_, truncate!(_, 3), append!(_, json!([3, 4])))));
     }
@@ -873,7 +833,7 @@ mod tests {
         let mut vec = vec![1, 2, 3, 4];
         let mut ob = vec.__observe();
         ob.retain(|x| x % 2 == 1);
-        assert_eq!(ob, vec![1, 3]);
+        assert_eq!(*ob.untracked_ref(), vec![1, 3]);
         let Json(mutation) = ob.flush().unwrap();
         assert_eq!(mutation, Some(batch!(_, truncate!(_, 3), append!(_, json!([3])))));
     }
@@ -883,7 +843,7 @@ mod tests {
         let mut vec = vec![1, 2, 3, 4, 5];
         let mut ob = vec.__observe();
         ob.retain_mut(|x| *x % 2 == 1);
-        assert_eq!(ob, vec![1, 3, 5]);
+        assert_eq!(*ob.untracked_ref(), vec![1, 3, 5]);
         let Json(mutation) = ob.flush().unwrap();
         assert_eq!(mutation, Some(batch!(_, truncate!(_, 4), append!(_, json!([3, 5])))));
     }
@@ -903,7 +863,7 @@ mod tests {
         let mut ob = vec.__observe();
         let drained: Vec<_> = ob.drain(1..3).collect();
         assert_eq!(drained, vec![2, 3]);
-        assert_eq!(ob, vec![1, 4]);
+        assert_eq!(*ob.untracked_ref(), vec![1, 4]);
         let Json(mutation) = ob.flush().unwrap();
         assert_eq!(mutation, Some(batch!(_, truncate!(_, 3), append!(_, json!([4])))));
     }
@@ -913,7 +873,7 @@ mod tests {
         let mut vec = vec![1, 2, 3];
         let mut ob = vec.__observe();
         let _: Vec<_> = ob.drain(..).collect();
-        assert_eq!(ob, Vec::<i32>::new());
+        assert_eq!(*ob.untracked_ref(), Vec::<i32>::new());
         let Json(mutation) = ob.flush().unwrap();
         assert_eq!(mutation, Some(replace!(_, json!([]))));
     }
@@ -924,7 +884,7 @@ mod tests {
         let mut ob = vec.__observe();
         let removed: Vec<_> = ob.splice(1..3, [10, 20, 30]).collect();
         assert_eq!(removed, vec![2, 3]);
-        assert_eq!(ob, vec![1, 10, 20, 30, 4]);
+        assert_eq!(*ob.untracked_ref(), vec![1, 10, 20, 30, 4]);
         let Json(mutation) = ob.flush().unwrap();
         assert_eq!(
             mutation,
@@ -962,7 +922,7 @@ mod tests {
         // First extracted element is at index 1, so mark_truncate(1).
         let extracted: Vec<_> = ob.extract_if(.., |x| *x % 2 == 0).collect();
         assert_eq!(extracted, vec![2, 4]);
-        assert_eq!(ob, vec![1, 3]);
+        assert_eq!(*ob.untracked_ref(), vec![1, 3]);
         let Json(mutation) = ob.flush().unwrap();
         assert_eq!(mutation, Some(batch!(_, truncate!(_, 3), append!(_, json!([3])))));
     }
@@ -974,7 +934,7 @@ mod tests {
         // Only the last element matches; mark_truncate(4) preserves elements 0-3.
         let extracted: Vec<_> = ob.extract_if(.., |x| *x == 5).collect();
         assert_eq!(extracted, vec![5]);
-        assert_eq!(ob, vec![1, 2, 3, 4]);
+        assert_eq!(*ob.untracked_ref(), vec![1, 2, 3, 4]);
         let Json(mutation) = ob.flush().unwrap();
         assert_eq!(mutation, Some(truncate!(_, 1)));
     }
@@ -989,7 +949,7 @@ mod tests {
         // First extraction triggers mark_truncate(1).
         let extracted: Vec<_> = ob.extract_if(1.., |x| *x % 2 == 0).collect();
         assert_eq!(extracted, vec![2, 4]);
-        assert_eq!(ob, vec![1, 3, 5]);
+        assert_eq!(*ob.untracked_ref(), vec![1, 3, 5]);
         let Json(mutation) = ob.flush().unwrap();
         assert_eq!(mutation, Some(batch!(_, truncate!(_, 2), append!(_, json!([3, 5])),)));
     }
@@ -1023,7 +983,10 @@ mod tests {
         let mut ob = vec.__observe();
         let inserted = ob.insert_mut(1, "X".into());
         inserted.push_str("Y");
-        assert_eq!(ob, vec!["a".to_string(), "XY".into(), "b".into(), "c".into()]);
+        assert_eq!(
+            *ob.untracked_ref(),
+            vec!["a".to_string(), "XY".into(), "b".into(), "c".into()]
+        );
         let Json(mutation) = ob.flush().unwrap();
         assert_eq!(
             mutation,

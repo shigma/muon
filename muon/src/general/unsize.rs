@@ -58,7 +58,7 @@ impl<T: ?Sized> SerializeHandler for UnsizeHandler<T>
 where
     T: Unsize<Slice: Serialize> + Serialize + 'static,
 {
-    unsafe fn flush(&mut self, value: &T) -> Mutations {
+    fn flush(&mut self, value: &T) -> Mutations {
         let Some((old_addr, old_len)) = self.raw_parts.take() else {
             return Mutations::new();
         };

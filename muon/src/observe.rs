@@ -201,7 +201,7 @@ pub trait Observer: QuasiObserver<Target = Pointer<<Self as QuasiObserver>::Head
 /// This trait uses type-erased serialization: mutation values are stored as
 /// [`Box<dyn erased_serde::Serialize>`](erased_serde::Serialize) and only serialized when an
 /// [`Adapter`] converts them.
-pub trait SerializeObserver: QuasiObserver<Target = Pointer<<Self as QuasiObserver>::Head>> + Sized {
+pub trait SerializeObserver: Observer {
     /// Extracts all recorded mutations and fully resets internal state.
     ///
     /// After calling `flush`, the observer's state is fully reset: an immediately subsequent

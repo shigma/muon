@@ -51,7 +51,7 @@ where
 impl<'a, B, O, D, T> Observer for CowObserver<B, O>
 where
     B: Observer<InnerDepth = Succ<D>>,
-    B::Head: AsDerefMut<D, Target = Cow<'a, T>>,
+    B::Head: AsDeref<D, Target = Cow<'a, T>>,
     O: Observer<InnerDepth = Zero, Head = T::Owned>,
     D: Unsigned,
     T: ToOwned + ?Sized + 'a,
@@ -206,53 +206,6 @@ where
     }
 }
 
-macro_rules! generic_impl_cmp {
-    ($(impl $([$($gen:tt)*])? _ for $ty:ty);* $(;)?) => {
-        $(
-            impl<'a, $($($gen)*,)? B, O, T, D> PartialEq<$ty> for CowObserver<B, O>
-            where
-                D: Unsigned,
-                B: Observer<InnerDepth = Succ<D>>,
-                B::Head: AsDerefMut<D, Target = Cow<'a, T>>,
-                T: ToOwned + ?Sized + 'a,
-                Cow<'a, T>: PartialEq<$ty>,
-            {
-                fn eq(&self, other: &$ty) -> bool {
-                    self.untracked_ref().eq(other)
-                }
-            }
-
-            impl<'a, $($($gen)*,)? B, O, T, D> PartialOrd<$ty> for CowObserver<B, O>
-            where
-                D: Unsigned,
-                B: Observer<InnerDepth = Succ<D>>,
-                B::Head: AsDerefMut<D, Target = Cow<'a, T>>,
-                T: ToOwned + ?Sized + 'a,
-                Cow<'a, T>: PartialOrd<$ty>,
-            {
-                fn partial_cmp(&self, other: &$ty) -> Option<std::cmp::Ordering> {
-                    self.untracked_ref().partial_cmp(other)
-                }
-            }
-        )*
-    };
-}
-
-generic_impl_cmp! {
-    impl _ for str;
-    impl _ for String;
-    impl _ for std::ffi::CStr;
-    impl _ for std::ffi::CString;
-    impl _ for std::ffi::OsStr;
-    impl _ for std::ffi::OsString;
-    impl _ for std::path::Path;
-    impl _ for std::path::PathBuf;
-    impl [U] _ for Vec<U>;
-    impl ['b, U: ?Sized] _ for &'b U;
-    impl ['b, U: ?Sized] _ for &'b mut U;
-    impl ['b, U: ToOwned + ?Sized] _ for Cow<'b, U>;
-}
-
 impl<'a, T> Observe for Cow<'a, T>
 where
     T: ToOwned + RefObserve + ?Sized + 'a,
@@ -405,8 +358,8 @@ mod tests {
     fn comparison_with_cow() {
         let mut cow = Cow::Borrowed("hello");
         let ob = cow.__observe();
-        assert_eq!(ob, Cow::Borrowed("hello"));
-        assert_eq!(ob, Cow::<str>::Owned(String::from("hello")));
+        assert_eq!(*ob.untracked_ref(), Cow::Borrowed("hello"));
+        assert_eq!(*ob.untracked_ref(), Cow::<str>::Owned(String::from("hello")));
     }
 
     #[test]

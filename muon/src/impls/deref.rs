@@ -216,44 +216,6 @@ impl_snapshot! {
     impl [T: Snapshot + ?Sized] Snapshot for std::sync::Arc<T> as T::Snapshot;
 }
 
-macro_rules! generic_impl_cmp {
-    ($(impl $([$($gen:tt)*])? _ for $ty:ty);* $(;)?) => {
-        $(
-            impl<$($($gen)*,)? O, D, T: ?Sized> PartialEq<$ty> for DerefObserver<O>
-            where
-                O: QuasiObserver<InnerDepth = Succ<D>>,
-                O::Head: AsDeref<D, Target = T>,
-                T: PartialEq<$ty>,
-                D: Unsigned,
-            {
-                fn eq(&self, other: &$ty) -> bool {
-                    self.untracked_ref().eq(other)
-                }
-            }
-
-            impl<$($($gen)*,)? O, D, T: ?Sized> PartialOrd<$ty> for DerefObserver<O>
-            where
-                O: QuasiObserver<InnerDepth = Succ<D>>,
-                O::Head: AsDeref<D, Target = T>,
-                T: PartialOrd<$ty>,
-                D: Unsigned,
-            {
-                fn partial_cmp(&self, other: &$ty) -> Option<std::cmp::Ordering> {
-                    self.untracked_ref().partial_cmp(other)
-                }
-            }
-        )*
-    };
-}
-
-generic_impl_cmp! {
-    impl [U: ?Sized] _ for Box<U>;
-    impl ['a, U: ?Sized] _ for &'a U;
-    impl ['a, U: ?Sized] _ for &'a mut U;
-    impl [U: ?Sized] _ for std::rc::Rc<U>;
-    impl [U: ?Sized] _ for std::sync::Arc<U>;
-}
-
 #[cfg(test)]
 mod test {
     use muon_test_utils::*;
@@ -267,7 +229,7 @@ mod test {
     fn test_deref_method() {
         let mut value = Box::new(String::from("Hello, World!"));
         let mut ob = value.__observe();
-        assert_eq!(*ob, "Hello, World!");
+        assert_eq!(**ob.untracked_ref(), "Hello, World!");
 
         ob.push_str("\n");
         let Json(mutation) = ob.flush().unwrap();
@@ -278,7 +240,7 @@ mod test {
     fn test_deref_replace() {
         let mut value = Box::new(String::from("Hello, World!"));
         let mut ob = value.__observe();
-        assert_eq!(*ob, "Hello, World!");
+        assert_eq!(**ob.untracked_ref(), "Hello, World!");
 
         **ob.tracked_mut() = String::from("42");
         let Json(mutation) = ob.flush().unwrap();
@@ -289,7 +251,7 @@ mod test {
     fn test_deref_assign() {
         let mut value = Box::new(String::from("Hello, World!"));
         let mut ob = value.__observe();
-        assert_eq!(*ob, "Hello, World!");
+        assert_eq!(**ob.untracked_ref(), "Hello, World!");
 
         **ob.tracked_mut() = String::from("42");
         let Json(mutation) = ob.flush().unwrap();

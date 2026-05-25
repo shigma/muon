@@ -125,7 +125,7 @@ where
 impl<'ob, S: ?Sized, D> Observer for OsStringObserver<'ob, OsStringObserverState, S, D>
 where
     D: Unsigned,
-    S: AsDerefMut<D, Target = OsString>,
+    S: AsDeref<D, Target = OsString>,
 {
     unsafe fn observe(head: *mut Self::Head) -> Self {
         Self {

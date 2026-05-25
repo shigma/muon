@@ -212,7 +212,7 @@ impl<K, O, S: ?Sized, D> BTreeMapObserver<K, O, S, D>
 where
     D: Unsigned,
     S: AsDeref<D, Target = BTreeMap<K, O::Head>>,
-    O: Observer<InnerDepth = Zero> + SerializeObserver,
+    O: SerializeObserver<InnerDepth = Zero>,
     O::Head: Serialize + Sized + 'static,
     K: Serialize + Clone + Ord + Into<PathSegment> + 'static,
 {
@@ -254,7 +254,7 @@ impl<K, O, S: ?Sized, D> SerializeObserver for BTreeMapObserver<K, O, S, D>
 where
     D: Unsigned,
     S: AsDeref<D, Target = BTreeMap<K, O::Head>>,
-    O: Observer<InnerDepth = Zero> + SerializeObserver,
+    O: SerializeObserver<InnerDepth = Zero>,
     O::Head: Serialize + Sized + 'static,
     K: Serialize + Clone + Ord + Into<PathSegment> + 'static,
 {

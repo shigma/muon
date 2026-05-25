@@ -62,7 +62,7 @@ impl<T: ?Sized> GeneralHandler for ShallowHandler<T> {
 }
 
 impl<T: ?Sized> ReplaceHandler for ShallowHandler<T> {
-    unsafe fn is_replace(&self, _value: &T) -> bool {
+    fn is_replace(&self, _value: &T) -> bool {
         self.mutated
     }
 }

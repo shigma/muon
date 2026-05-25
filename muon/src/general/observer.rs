@@ -1,6 +1,5 @@
 use std::fmt::Debug;
 use std::marker::PhantomData;
-use std::num::NonZero;
 use std::ops::{Deref, DerefMut};
 
 use serde::Serialize;
@@ -72,12 +71,8 @@ pub trait GeneralHandler: Invalidate<Self::Target> {
 pub trait SerializeHandler: GeneralHandler {
     /// Flushes and serializes all recorded mutations.
     ///
-    /// ## Safety
-    ///
-    /// This method assumes the handler is constructed with [`observe`](GeneralHandler::observe).
-    ///
     /// See also [`SerializeObserver::flush`].
-    unsafe fn flush(&mut self, value: &Self::Target) -> Mutations;
+    fn flush(&mut self, value: &Self::Target) -> Mutations;
 }
 
 /// A handler that can only express replace-style mutations.
@@ -91,12 +86,8 @@ pub trait ReplaceHandler: GeneralHandler {
     /// Returns whether the next flush would produce a [`Replace`](crate::MutationKind::Replace)
     /// mutation.
     ///
-    /// ## Safety
-    ///
-    /// This method assumes the handler is constructed with [`observe`](GeneralHandler::observe).
-    ///
     /// See also [`SerializeObserver::flush`].
-    unsafe fn is_replace(&self, value: &Self::Target) -> bool;
+    fn is_replace(&self, value: &Self::Target) -> bool;
 }
 
 impl<H> SerializeHandler for H
@@ -104,8 +95,8 @@ where
     H: ReplaceHandler,
     H::Target: Serialize + 'static,
 {
-    unsafe fn flush(&mut self, value: &Self::Target) -> Mutations {
-        let is_replace = unsafe { ReplaceHandler::is_replace(self, value) };
+    fn flush(&mut self, value: &Self::Target) -> Mutations {
+        let is_replace = ReplaceHandler::is_replace(self, value);
         *self = H::observe(value);
         if is_replace {
             Mutations::replace(value)
@@ -247,7 +238,7 @@ where
     D: Unsigned,
 {
     fn flush(this: &mut Self) -> Mutations {
-        unsafe { this.handler.flush((*this.ptr).as_deref()) }
+        this.handler.flush((*this.ptr).as_deref())
     }
 }
 
@@ -458,116 +449,4 @@ macro_rules! impl_ops_copy_unary {
 impl_ops_copy_unary! {
     Neg => neg,
     Not => not,
-}
-
-macro_rules! impl_partial_eq {
-    ($($ty:ty),* $(,)?) => {
-        $(
-            impl<'ob, H, S: ?Sized, D> PartialEq<$ty> for GeneralObserver<'ob, H, S, D>
-            where
-                S: AsDeref<D, Target = $ty>,
-                D: Unsigned,
-            {
-                fn eq(&self, other: &$ty) -> bool {
-                    (***self).as_deref().eq(other)
-                }
-            }
-        )*
-    };
-}
-
-impl_partial_eq! {
-    (), usize, u8, u16, u32, u64, u128, isize, i8, i16, i32, i64, i128, f32, f64, bool, char,
-    NonZero<usize>, NonZero<u8>, NonZero<u16>, NonZero<u32>, NonZero<u64>, NonZero<u128>,
-    NonZero<isize>, NonZero<i8>, NonZero<i16>, NonZero<i32>, NonZero<i64>, NonZero<i128>,
-    core::net::IpAddr, core::net::Ipv4Addr, core::net::Ipv6Addr,
-    core::net::SocketAddr, core::net::SocketAddrV4, core::net::SocketAddrV6,
-    core::time::Duration, std::time::SystemTime,
-}
-
-#[cfg(feature = "chrono")]
-impl_partial_eq! {
-    chrono::Days, chrono::FixedOffset, chrono::Month, chrono::Months, chrono::IsoWeek,
-    chrono::NaiveDate, chrono::NaiveDateTime, chrono::NaiveTime, chrono::NaiveWeek,
-    chrono::TimeDelta, chrono::Utc, chrono::Weekday, chrono::WeekdaySet,
-}
-
-#[cfg(feature = "uuid")]
-impl_partial_eq! {
-    uuid::Uuid, uuid::NonNilUuid,
-}
-
-macro_rules! impl_partial_ord {
-    ($($ty:ty),* $(,)?) => {
-        $(
-            impl<'ob, H, S: ?Sized, D> PartialOrd<$ty> for GeneralObserver<'ob, H, S, D>
-            where
-                S: AsDeref<D, Target = $ty>,
-                D: Unsigned,
-            {
-                fn partial_cmp(&self, other: &$ty) -> Option<std::cmp::Ordering> {
-                    (***self).as_deref().partial_cmp(other)
-                }
-            }
-        )*
-    };
-}
-
-impl_partial_ord! {
-    (), usize, u8, u16, u32, u64, u128, isize, i8, i16, i32, i64, i128, f32, f64, bool, char,
-    NonZero<usize>, NonZero<u8>, NonZero<u16>, NonZero<u32>, NonZero<u64>, NonZero<u128>,
-    NonZero<isize>, NonZero<i8>, NonZero<i16>, NonZero<i32>, NonZero<i64>, NonZero<i128>,
-    core::net::IpAddr, core::net::Ipv4Addr, core::net::Ipv6Addr,
-    core::net::SocketAddr, core::net::SocketAddrV4, core::net::SocketAddrV6,
-    core::time::Duration, std::time::SystemTime,
-}
-
-#[cfg(feature = "chrono")]
-impl_partial_ord! {
-    chrono::Days, chrono::Month, chrono::Months, chrono::IsoWeek,
-    chrono::NaiveDate, chrono::NaiveDateTime, chrono::NaiveTime,
-    chrono::TimeDelta, chrono::WeekdaySet,
-}
-
-#[cfg(feature = "uuid")]
-impl_partial_ord! {
-    uuid::Uuid,
-}
-
-macro_rules! generic_impl_cmp {
-    ($(impl $([$($gen:tt)*])? _ for $ty:ty);* $(;)?) => {
-        $(
-            impl<'ob, $($($gen)*,)? H, S: ?Sized, D> PartialEq<$ty> for GeneralObserver<'ob, H, S, D>
-            where
-                S: AsDeref<D>,
-                D: Unsigned,
-                S::Target: PartialEq<$ty>,
-            {
-                fn eq(&self, other: &$ty) -> bool {
-                    (***self).as_deref().eq(other)
-                }
-            }
-
-            impl<'ob, $($($gen)*,)? H, S: ?Sized, D> PartialOrd<$ty> for GeneralObserver<'ob, H, S, D>
-            where
-                S: AsDeref<D>,
-                D: Unsigned,
-                S::Target: PartialOrd<$ty>,
-            {
-                fn partial_cmp(&self, other: &$ty) -> Option<std::cmp::Ordering> {
-                    (***self).as_deref().partial_cmp(other)
-                }
-            }
-        )*
-    };
-}
-
-generic_impl_cmp! {
-    impl [U] _ for std::marker::PhantomData<U>;
-    impl ['a, U] _ for &'a [U];
-}
-
-#[cfg(feature = "chrono")]
-generic_impl_cmp! {
-    impl [Tz: chrono::TimeZone] _ for chrono::DateTime<Tz>;
 }

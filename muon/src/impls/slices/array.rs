@@ -60,8 +60,6 @@ where
     O: SerializeObserver<InnerDepth = Zero>,
     O::Head: Serialize + Sized + 'static,
 {
-    type Target = [O::Head; N];
-
     fn flush(&mut self, ptr: &mut Pointer<S>) -> Mutations {
         let slice = (**ptr).as_deref();
         let mut mutations = Mutations::new();
@@ -151,7 +149,7 @@ impl<const N: usize, O, S: ?Sized, D, T> SerializeObserver for ArrayObserver<N, 
 where
     D: Unsigned,
     S: AsDeref<D, Target = [T; N]>,
-    O: Observer<InnerDepth = Zero, Head = T> + SerializeObserver,
+    O: SerializeObserver<InnerDepth = Zero, Head = T>,
     T: Serialize + 'static,
 {
     fn flush(this: &mut Self) -> Mutations {
@@ -168,31 +166,6 @@ where
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_tuple("ArrayObserver").field(&self.untracked_ref()).finish()
     }
-}
-
-macro_rules! generic_impl_partial_eq {
-    ($(impl $([$($gen:tt)*])? PartialEq<$ty:ty> for [_; N]);* $(;)?) => {
-        $(
-            impl<$($($gen)*,)? const N: usize, O, S: ?Sized, D> PartialEq<$ty> for ArrayObserver<N, O, S, D>
-            where
-                D: Unsigned,
-                S: AsDeref<D, Target = [O::Head; N]>,
-                O: Observer<InnerDepth = Zero, Head: Sized>,
-                [O::Head; N]: PartialEq<$ty>,
-            {
-                fn eq(&self, other: &$ty) -> bool {
-                    self.untracked_ref().eq(other)
-                }
-            }
-        )*
-    };
-}
-
-generic_impl_partial_eq! {
-    impl [U] PartialEq<[U; N]> for [_; N];
-    impl [U] PartialEq<[U]> for [_; N];
-    impl ['a, U] PartialEq<&'a U> for [_; N];
-    impl ['a, U] PartialEq<&'a mut U> for [_; N];
 }
 
 impl<const N: usize, O1, O2, S1: ?Sized, S2: ?Sized, D1, D2> PartialEq<ArrayObserver<N, O2, S2, D2>>
@@ -217,18 +190,6 @@ where
     S: AsDeref<D, Target = [O::Head; N]>,
     O: Observer<InnerDepth = Zero, Head: Sized + Eq>,
 {
-}
-
-impl<const N: usize, O, S: ?Sized, D, U> PartialOrd<[U; N]> for ArrayObserver<N, O, S, D>
-where
-    D: Unsigned,
-    S: AsDeref<D, Target = [O::Head; N]>,
-    O: Observer<InnerDepth = Zero, Head: Sized>,
-    [O::Head; N]: PartialOrd<[U; N]>,
-{
-    fn partial_cmp(&self, other: &[U; N]) -> Option<std::cmp::Ordering> {
-        self.untracked_ref().partial_cmp(other)
-    }
 }
 
 impl<const N: usize, O1, O2, S1: ?Sized, S2: ?Sized, D1, D2> PartialOrd<ArrayObserver<N, O2, S2, D2>>
@@ -339,11 +300,11 @@ mod tests {
     fn index_by_usize() {
         let mut arr = [10u32, 20, 30];
         let mut ob = arr.__observe();
-        assert_eq!(ob[1], 20);
+        assert_eq!(*ob[1].untracked_ref(), 20);
         let Json(mutation) = ob.flush().unwrap();
         assert_eq!(mutation, None);
         *ob[1].tracked_mut() = 99;
-        assert_eq!(ob[1], 99);
+        assert_eq!(*ob[1].untracked_ref(), 99);
         let Json(mutation) = ob.flush().unwrap();
         assert_eq!(mutation, Some(replace!(1, json!(99))));
     }
@@ -387,7 +348,7 @@ mod tests {
         let mut arr = [10u32, 20, 30];
         let mut ob = arr.__observe();
         ob.swap(0, 2);
-        assert_eq!(ob, [30, 20, 10]);
+        assert_eq!(*ob.untracked_ref(), [30, 20, 10]);
         let Json(mutation) = ob.flush().unwrap();
         assert_eq!(
             mutation,
@@ -424,6 +385,9 @@ mod tests {
         ob[0].push_str("!");
         ob[1].push_str("?");
         let Json(mutation) = ob.flush().unwrap();
-        assert_eq!(mutation, Some(batch!(_, append!(0, json!("!")), append!(1, json!("?")))));
+        assert_eq!(
+            mutation,
+            Some(batch!(_, append!(0, json!("!")), append!(1, json!("?"))))
+        );
     }
 }

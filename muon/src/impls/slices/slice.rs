@@ -51,10 +51,7 @@ pub trait SliceObserverState: Invalidate<Self::Target> + Sized {
 /// choose its own mutability requirement: [`[O; N]`](prim@array) bounds `S: AsDeref<D>` (shared
 /// access), while [`VecObserverState`] bounds `S: AsDerefMut<D>` (mutable access for element
 /// relocation).
-pub trait SliceSerializeObserverState<S: ?Sized, D>: Invalidate<Self::Target> {
-    /// The slice-like type being observed.
-    type Target: ?Sized;
-
+pub trait SliceSerializeObserverState<S: ?Sized, D>: SliceObserverState {
     /// Consumes the accumulated mutation state, flushes inner element observers, and returns the
     /// collected [`Mutations`].
     ///
@@ -195,7 +192,7 @@ where
 
 impl<V, S: ?Sized, D, T: ?Sized> SerializeObserver for SliceObserver<V, S, D>
 where
-    V: SliceObserverState<Target = T> + SliceSerializeObserverState<S, D, Target = T>,
+    V: SliceSerializeObserverState<S, D, Target = T>,
     D: Unsigned,
     S: AsDeref<D, Target = T>,
 {
@@ -512,11 +509,11 @@ mod tests {
     fn index_by_usize() {
         let slice: &mut [u32] = &mut [0, 1, 2];
         let mut ob = slice.__observe();
-        assert_eq!(ob[2], 2);
+        assert_eq!(*ob[2].untracked_ref(), 2);
         let Json(mutation) = ob.flush().unwrap();
         assert_eq!(mutation, None);
         *ob[2].tracked_mut() = 42;
-        assert_eq!(ob[2], 42);
+        assert_eq!(*ob[2].untracked_ref(), 42);
         let Json(mutation) = ob.flush().unwrap();
         assert_eq!(mutation, Some(replace!(-1, json!(42))));
     }
@@ -525,11 +522,11 @@ mod tests {
     fn get_mut() {
         let slice: &mut [u32] = &mut [0, 1, 2];
         let mut ob = slice.__observe();
-        assert_eq!(*ob.get_mut(2).unwrap(), 2);
+        assert_eq!(*(*ob.get_mut(2).unwrap()).untracked_ref(), 2);
         let Json(mutation) = ob.flush().unwrap();
         assert_eq!(mutation, None);
         *ob.get_mut(2).unwrap().tracked_mut() = 42;
-        assert_eq!(*ob.get_mut(2).unwrap(), 42);
+        assert_eq!(*(*ob.get_mut(2).unwrap()).untracked_ref(), 42);
         let Json(mutation) = ob.flush().unwrap();
         assert_eq!(mutation, Some(replace!(-1, json!(42))));
     }

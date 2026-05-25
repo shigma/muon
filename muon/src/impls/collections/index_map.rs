@@ -208,7 +208,7 @@ impl<K, O, S: ?Sized, D> IndexMapObserver<K, O, S, D>
 where
     D: Unsigned,
     S: AsDeref<D, Target = IndexMap<K, O::Head>>,
-    O: Observer<InnerDepth = Zero> + SerializeObserver,
+    O: SerializeObserver<InnerDepth = Zero>,
     O::Head: Serialize + Sized + 'static,
     K: Serialize + Clone + Eq + Hash + Into<PathSegment> + 'static,
 {
@@ -250,7 +250,7 @@ impl<K, O, S: ?Sized, D> SerializeObserver for IndexMapObserver<K, O, S, D>
 where
     D: Unsigned,
     S: AsDeref<D, Target = IndexMap<K, O::Head>>,
-    O: Observer<InnerDepth = Zero> + SerializeObserver,
+    O: SerializeObserver<InnerDepth = Zero>,
     O::Head: Serialize + Sized + 'static,
     K: Serialize + Clone + Eq + Hash + Into<PathSegment> + 'static,
 {
@@ -390,7 +390,7 @@ impl<K, O, S: ?Sized, D> IndexMapObserver<K, O, S, D>
 where
     D: Unsigned,
     S: AsDerefMut<D, Target = IndexMap<K, O::Head>>,
-    O: Observer<InnerDepth = Zero> + SerializeObserver,
+    O: SerializeObserver<InnerDepth = Zero>,
     O::Head: Sized,
     K: Clone + Eq + Hash,
 {
