@@ -5,9 +5,9 @@ use std::ops::{Deref, DerefMut};
 use serde::Serialize;
 
 use crate::general::Snapshot;
-use crate::helper::macros::{spec_impl_observe, spec_impl_ref_observe};
+use crate::helper::macros::{spec_impl_observe, spec_impl_ro_observe};
 use crate::helper::{AsDeref, AsDerefMut, AsDerefPtrExt, Pointer, QuasiObserver, Succ, Unsigned, Zero};
-use crate::observe::{DefaultSpec, Observer, RefObserve, SerializeObserver};
+use crate::observe::{DefaultSpec, Observer, RoObserve, SerializeObserver};
 use crate::{Mutations, Observe};
 
 /// Observer implementation for tuple `(T,)`.
@@ -157,10 +157,10 @@ spec_impl_observe! {
     TupleObserveImpl, (Self,), (T,), TupleObserver
 }
 
-spec_impl_ref_observe! {
+spec_impl_ro_observe! {
     #[cfg_attr(docsrs, doc(fake_variadic))]
     #[cfg_attr(docsrs, doc = "This trait is implemented for tuples up to 12 items long.")]
-    TupleRefObserveImpl, (Self,), (T,), TupleObserver
+    TupleRoObserveImpl, (Self,), (T,), TupleObserver
 }
 
 #[cfg_attr(docsrs, doc(fake_variadic))]
@@ -373,9 +373,9 @@ macro_rules! tuple_observer {
         }
 
         #[cfg_attr(docsrs, doc(hidden))]
-        impl<$($t,)*> RefObserve for ($($t,)*)
+        impl<$($t,)*> RoObserve for ($($t,)*)
         where
-            $($t: RefObserve,)*
+            $($t: RoObserve,)*
         {
             type Observer<'ob, S, D>
                 = $ty<$($t::Observer<'ob, $t, Zero>,)* S, D>

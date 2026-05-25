@@ -3,7 +3,7 @@ use std::ffi::CStr;
 use crate::Observe;
 use crate::general::{Unsize, UnsizeObserver};
 use crate::helper::{AsDeref, AsDerefMut, Unsigned};
-use crate::observe::{DefaultSpec, RefObserve};
+use crate::observe::{DefaultSpec, RoObserve};
 
 impl Unsize for CStr {
     type Slice = [u8];
@@ -32,7 +32,7 @@ impl Observe for CStr {
     type Spec = DefaultSpec;
 }
 
-impl RefObserve for CStr {
+impl RoObserve for CStr {
     type Observer<'ob, S, D>
         = UnsizeObserver<'ob, S, D>
     where

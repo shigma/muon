@@ -10,7 +10,7 @@ use indexmap::{Equivalent, IndexSet, TryReserveError};
 use serde::Serialize;
 
 use crate::general::Snapshot;
-use crate::helper::macros::{default_impl_ref_observe, delegate_methods};
+use crate::helper::macros::{default_impl_ro_observe, delegate_methods};
 use crate::helper::shallow::{ObserverState, SerializeObserverState, shallow_observer};
 use crate::helper::{AsDerefMut, Invalidate, QuasiObserver, Unsigned};
 use crate::observe::DefaultSpec;
@@ -549,8 +549,8 @@ impl<T: Clone + Eq + Hash> Observe for IndexSet<T> {
     type Spec = DefaultSpec;
 }
 
-default_impl_ref_observe! {
-    impl [T] RefObserve for IndexSet<T>;
+default_impl_ro_observe! {
+    impl [T] RoObserve for IndexSet<T>;
 }
 
 impl<T> Snapshot for IndexSet<T>

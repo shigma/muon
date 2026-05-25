@@ -5,7 +5,7 @@ use std::num::NonZero;
 use crate::Observe;
 use crate::general::{DebugHandler, GeneralHandler, GeneralObserver, ReplaceHandler};
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, Unsigned, Zero};
-use crate::observe::RefObserve;
+use crate::observe::{RoObserve, RwObserve};
 
 /// A general observer that uses snapshot comparison to detect actual value changes.
 ///
@@ -149,7 +149,18 @@ macro_rules! impl_snapshot_observe {
                 type Spec = SnapshotSpec;
             }
 
-            impl RefObserve for $ty {
+            impl RoObserve for $ty {
+                type Observer<'ob, S, D>
+                    = SnapshotObserver<'ob, S, D>
+                where
+                    Self: 'ob,
+                    D: Unsigned,
+                    S: AsDeref<D, Target = Self> + ?Sized + 'ob;
+
+                type Spec = SnapshotSpec;
+            }
+
+            impl RwObserve for $ty {
                 type Observer<'ob, S, D>
                     = SnapshotObserver<'ob, S, D>
                 where
@@ -208,7 +219,18 @@ macro_rules! generic_impl_snapshot_observe {
                 type Spec = SnapshotSpec;
             }
 
-            impl<$($($gen)*)?> RefObserve for $ty {
+            impl<$($($gen)*)?> RoObserve for $ty {
+                type Observer<'ob, S, D>
+                    = SnapshotObserver<'ob, S, D>
+                where
+                    Self: 'ob,
+                    D: Unsigned,
+                    S: AsDeref<D, Target = Self> + ?Sized + 'ob;
+
+                type Spec = SnapshotSpec;
+            }
+
+            impl<$($($gen)*)?> RwObserve for $ty {
                 type Observer<'ob, S, D>
                     = SnapshotObserver<'ob, S, D>
                 where

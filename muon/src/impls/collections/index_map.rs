@@ -14,7 +14,7 @@ use indexmap::{Equivalent, IndexMap, TryReserveError};
 use serde::Serialize;
 
 use crate::general::Snapshot;
-use crate::helper::macros::{default_impl_ref_observe, delegate_methods};
+use crate::helper::macros::{default_impl_ro_observe, delegate_methods};
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
 use crate::observe::{DefaultSpec, Observer, SerializeObserver};
 use crate::{MutationKind, Mutations, Observe, PathSegment};
@@ -930,8 +930,8 @@ impl<K: Clone + Eq + Hash, V: Observe> Observe for IndexMap<K, V> {
     type Spec = DefaultSpec;
 }
 
-default_impl_ref_observe! {
-    impl [K, V] RefObserve for IndexMap<K, V>;
+default_impl_ro_observe! {
+    impl [K, V] RoObserve for IndexMap<K, V>;
 }
 
 impl<K, V> Snapshot for IndexMap<K, V>

@@ -6,7 +6,7 @@ use std::ops::{Deref, DerefMut};
 
 use crate::Mutations;
 use crate::general::Snapshot;
-use crate::helper::macros::{spec_impl_observe, spec_impl_ref_observe};
+use crate::helper::macros::{spec_impl_observe, spec_impl_ro_observe};
 use crate::helper::{AsDeref, AsDerefMut, AsDerefPtrExt, Pointer, QuasiObserver, Succ, Unsigned, Zero};
 use crate::observe::{Observer, SerializeObserver};
 
@@ -327,7 +327,7 @@ impl_ops_copy_unary! {
 macro_rules! impl_newtype {
     ($helper:ident, $helper_ref:ident, $wrapper:ident) => {
         spec_impl_observe!($helper, $wrapper<Self>, $wrapper<T>, NewtypeObserver);
-        spec_impl_ref_observe!($helper_ref, $wrapper<Self>, $wrapper<T>, NewtypeObserver);
+        spec_impl_ro_observe!($helper_ref, $wrapper<Self>, $wrapper<T>, NewtypeObserver);
 
         impl<T: Snapshot> Snapshot for $wrapper<T> {
             type Snapshot = T::Snapshot;
@@ -343,9 +343,9 @@ macro_rules! impl_newtype {
     };
 }
 
-impl_newtype!(WrappingObserveImpl, WrappingRefObserveImpl, Wrapping);
-impl_newtype!(SaturatingObserveImpl, SaturatingRefObserveImpl, Saturating);
-impl_newtype!(ReverseObserveImpl, ReverseRefObserveImpl, Reverse);
+impl_newtype!(WrappingObserveImpl, WrappingRoObserveImpl, Wrapping);
+impl_newtype!(SaturatingObserveImpl, SaturatingRoObserveImpl, Saturating);
+impl_newtype!(ReverseObserveImpl, ReverseRoObserveImpl, Reverse);
 
 #[cfg(test)]
 mod tests {

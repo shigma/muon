@@ -9,7 +9,7 @@ use crate::general::Snapshot;
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
 use crate::impls::slice::{SliceObserver, SliceObserverState, SliceSerializeObserverState};
 use crate::impls::slices::helper::SliceIndexImpl;
-use crate::observe::{DefaultSpec, Observer, RefObserve, SerializeObserver};
+use crate::observe::{DefaultSpec, Observer, RoObserve, SerializeObserver};
 use crate::{Mutations, Observe};
 
 impl<O, const N: usize> Invalidate<[O::Head; N]> for [O; N]
@@ -256,7 +256,7 @@ impl<T: Observe, const N: usize> Observe for [T; N] {
     type Spec = DefaultSpec;
 }
 
-impl<T: RefObserve, const N: usize> RefObserve for [T; N] {
+impl<T: RoObserve, const N: usize> RoObserve for [T; N] {
     type Observer<'ob, S, D>
         = ArrayObserver<N, T::Observer<'ob, T, Zero>, S, D>
     where

@@ -16,7 +16,7 @@ use crate::helper::{AsDeref, AsDerefMut, AsDerefPtrExt, Invalidate, Pointer, Qua
 use crate::impls::slices::helper::{GetDisjointMutIndexImpl, SliceIndexImpl};
 use crate::impls::slices::range_set::RangeSet;
 use crate::impls::vec::VecObserverState;
-use crate::observe::{DefaultSpec, Observer, RefObserve, SerializeObserver};
+use crate::observe::{DefaultSpec, Observer, RoObserve, SerializeObserver};
 use crate::{Mutations, Observe};
 
 /// Trait for managing the internal observer storage within a slice observer.
@@ -485,7 +485,7 @@ impl<T> Unsize for [T] {
     }
 }
 
-impl<T> RefObserve for [T] {
+impl<T> RoObserve for [T] {
     type Observer<'ob, S, D>
         = UnsizeObserver<'ob, S, D>
     where

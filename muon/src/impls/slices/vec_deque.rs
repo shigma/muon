@@ -12,7 +12,7 @@ use std::ops::{Bound, Deref, DerefMut, Index, IndexMut, Range, RangeBounds};
 use serde::Serialize;
 use serde::ser::SerializeSeq;
 
-use crate::helper::macros::{default_impl_ref_observe, delegate_methods};
+use crate::helper::macros::{default_impl_ro_observe, delegate_methods};
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
 use crate::impls::slices::range_set::RangeSet;
 use crate::observe::{DefaultSpec, Observer, SerializeObserver};
@@ -926,8 +926,8 @@ impl<T: Observe> Observe for VecDeque<T> {
     type Spec = DefaultSpec;
 }
 
-default_impl_ref_observe! {
-    impl [T: Observe] RefObserve for VecDeque<T>;
+default_impl_ro_observe! {
+    impl [T: Observe] RoObserve for VecDeque<T>;
 }
 
 #[cfg(test)]

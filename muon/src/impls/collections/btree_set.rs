@@ -10,7 +10,7 @@ use std::ops::RangeBounds;
 use serde::Serialize;
 
 use crate::general::Snapshot;
-use crate::helper::macros::{default_impl_ref_observe, delegate_methods};
+use crate::helper::macros::{default_impl_ro_observe, delegate_methods};
 use crate::helper::shallow::{ObserverState, SerializeObserverState, shallow_observer};
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Unsigned};
 use crate::observe::DefaultSpec;
@@ -30,8 +30,8 @@ shallow_observer! {
     struct BTreeSetObserver<T>(BTreeSet<T>, BTreeSetObserverState<T>);
 }
 
-default_impl_ref_observe! {
-    impl [T] RefObserve for BTreeSet<T>;
+default_impl_ro_observe! {
+    impl [T] RoObserve for BTreeSet<T>;
 }
 
 struct BTreeSetObserverState<T> {

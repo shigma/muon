@@ -6,7 +6,7 @@ use serde::Serialize;
 
 use crate::Mutations;
 use crate::general::Snapshot;
-use crate::helper::macros::{spec_impl_observe, spec_impl_observe_from_ref, spec_impl_ref_observe};
+use crate::helper::macros::{spec_impl_observe, spec_impl_observe_from_ro, spec_impl_ro_observe};
 use crate::helper::{AsDeref, AsDerefMut, AsDerefPtrExt, Pointer, QuasiObserver, Succ, Unsigned, Zero};
 use crate::observe::{Observer, SerializeObserver};
 
@@ -163,7 +163,7 @@ macro_rules! impl_range {
             }
 
             spec_impl_observe!($helper_ref, $ty<Self>, $ty<T>, $ob);
-            spec_impl_ref_observe!($helper_mut, $ty<Self>, $ty<T>, $ob);
+            spec_impl_ro_observe!($helper_mut, $ty<Self>, $ty<T>, $ob);
 
             impl<T: Snapshot> Snapshot for $ty<T> {
                 type Snapshot = $ty<T::Snapshot>;
@@ -183,9 +183,9 @@ macro_rules! impl_range {
 }
 
 impl_range! {
-    Range (start, end) => RangeObserver, RangeObserveImpl, RangeRefObserveImpl;
-    RangeFrom (start) => RangeFromObserver, RangeFromObserveImpl, RangeFromRefObserveImpl;
-    RangeTo (end) => RangeToObserver, RangeToObserveImpl, RangeToRefObserveImpl;
+    Range (start, end) => RangeObserver, RangeObserveImpl, RangeRoObserveImpl;
+    RangeFrom (start) => RangeFromObserver, RangeFromObserveImpl, RangeFromRoObserveImpl;
+    RangeTo (end) => RangeToObserver, RangeToObserveImpl, RangeToRoObserveImpl;
 }
 
 /// Observer implementation for [`RangeInclusive<Idx>`].
@@ -341,15 +341,15 @@ where
 {
 }
 
-spec_impl_observe_from_ref!(
+spec_impl_observe_from_ro!(
     RangeInclusiveObserveImpl,
     RangeInclusive<Self>,
     RangeInclusive<T>,
     RangeInclusiveObserver
 );
 
-spec_impl_ref_observe!(
-    RangeInclusiveRefObserveImpl,
+spec_impl_ro_observe!(
+    RangeInclusiveRoObserveImpl,
     RangeInclusive<Self>,
     RangeInclusive<T>,
     RangeInclusiveObserver

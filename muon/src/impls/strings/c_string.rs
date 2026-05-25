@@ -4,7 +4,7 @@ use crate::Observe;
 use crate::general::UnsizeObserver;
 use crate::helper::{AsDeref, AsDerefMut, Succ, Unsigned};
 use crate::impls::DerefObserver;
-use crate::observe::{DefaultSpec, RefObserve};
+use crate::observe::{DefaultSpec, RoObserve};
 
 impl Observe for CString {
     type Observer<'ob, S, D>
@@ -17,7 +17,7 @@ impl Observe for CString {
     type Spec = DefaultSpec;
 }
 
-impl RefObserve for CString {
+impl RoObserve for CString {
     type Observer<'ob, S, D>
         = DerefObserver<UnsizeObserver<'ob, S, Succ<D>>>
     where

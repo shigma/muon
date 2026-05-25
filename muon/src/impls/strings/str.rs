@@ -11,7 +11,7 @@ use crate::helper::shallow::{ShallowDelegate, ShallowMut, shallow_observer};
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Unsigned, Zero};
 use crate::impls::strings::TruncateLen;
 use crate::impls::strings::string::StringObserverState;
-use crate::observe::{DefaultSpec, Observe, RefObserve};
+use crate::observe::{DefaultSpec, Observe, RoObserve};
 
 shallow_observer! {
     /// Observer implementation for [`str`].
@@ -202,7 +202,7 @@ impl Observe for str {
     type Spec = DefaultSpec;
 }
 
-impl RefObserve for str {
+impl RoObserve for str {
     type Observer<'ob, S, D>
         = UnsizeObserver<'ob, S, D>
     where

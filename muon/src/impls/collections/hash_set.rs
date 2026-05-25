@@ -7,7 +7,7 @@ use std::hash::Hash;
 use std::ops::{Deref, DerefMut};
 
 use crate::Observe;
-use crate::helper::macros::{default_impl_ref_observe, delegate_methods};
+use crate::helper::macros::{default_impl_ro_observe, delegate_methods};
 use crate::helper::shallow::shallow_observer;
 use crate::helper::{AsDerefMut, QuasiObserver, Unsigned};
 use crate::observe::DefaultSpec;
@@ -156,8 +156,8 @@ impl<T> Observe for HashSet<T> {
     type Spec = DefaultSpec;
 }
 
-default_impl_ref_observe! {
-    impl [T] RefObserve for HashSet<T>;
+default_impl_ro_observe! {
+    impl [T] RoObserve for HashSet<T>;
 }
 
 #[cfg(test)]

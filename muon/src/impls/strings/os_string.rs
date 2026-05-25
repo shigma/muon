@@ -10,7 +10,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::windows::ffi::OsStrExt;
 
 use super::os_str::{OsStrObserver, os_str_len};
-use crate::helper::macros::{default_impl_ref_observe, delegate_methods};
+use crate::helper::macros::{default_impl_ro_observe, delegate_methods};
 use crate::helper::shallow::{ObserverState, SerializeObserverState};
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, QuasiObserver, Succ, Unsigned, Zero};
 use crate::observe::{DefaultSpec, Observer, SerializeObserver};
@@ -266,8 +266,8 @@ impl Observe for OsString {
     type Spec = DefaultSpec;
 }
 
-default_impl_ref_observe! {
-    impl RefObserve for OsString;
+default_impl_ro_observe! {
+    impl RoObserve for OsString;
 }
 
 #[cfg(test)]

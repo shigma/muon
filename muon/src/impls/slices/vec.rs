@@ -11,7 +11,7 @@ use std::vec::{Drain, ExtractIf, Splice};
 use serde::Serialize;
 
 use crate::general::Snapshot;
-use crate::helper::macros::{default_impl_ref_observe, delegate_methods};
+use crate::helper::macros::{default_impl_ro_observe, delegate_methods};
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
 use crate::impls::slice::{LazyVec, SliceObserver, SliceObserverState, SliceSerializeObserverState};
 use crate::impls::slices::helper::SliceIndexImpl;
@@ -599,8 +599,8 @@ impl<T: Observe> Observe for Vec<T> {
     type Spec = DefaultSpec;
 }
 
-default_impl_ref_observe! {
-    impl [T] RefObserve for Vec<T>;
+default_impl_ro_observe! {
+    impl [T] RoObserve for Vec<T>;
 }
 
 impl<T: Snapshot> Snapshot for Vec<T> {

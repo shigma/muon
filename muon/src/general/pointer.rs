@@ -2,7 +2,7 @@ use std::ptr::NonNull;
 
 use crate::Observe;
 use crate::general::{DebugHandler, GeneralHandler, GeneralObserver, ReplaceHandler};
-use crate::helper::macros::default_impl_ref_observe;
+use crate::helper::macros::default_impl_ro_observe;
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, Unsigned};
 use crate::observe::DefaultSpec;
 
@@ -74,6 +74,6 @@ impl Observe for std::fmt::Arguments<'_> {
     type Spec = DefaultSpec;
 }
 
-default_impl_ref_observe! {
-    impl RefObserve for std::fmt::Arguments<'_>;
+default_impl_ro_observe! {
+    impl RoObserve for std::fmt::Arguments<'_>;
 }

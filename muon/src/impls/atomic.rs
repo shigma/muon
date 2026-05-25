@@ -2,7 +2,7 @@ use std::sync::atomic::Ordering;
 
 use crate::general::{Snapshot, SnapshotObserver};
 use crate::helper::{AsDeref, AsDerefMut, Unsigned};
-use crate::observe::{DefaultSpec, Observe, RefObserve};
+use crate::observe::{DefaultSpec, Observe, RoObserve};
 
 macro_rules! impl_atomic {
     ($($ident:ident => $output:ty),* $(,)?) => {
@@ -30,7 +30,7 @@ macro_rules! impl_atomic {
                 type Spec = DefaultSpec;
             }
 
-            impl RefObserve for std::sync::atomic::$ident {
+            impl RoObserve for std::sync::atomic::$ident {
                 type Observer<'ob, S, D>
                     = SnapshotObserver<'ob, S, D>
                 where

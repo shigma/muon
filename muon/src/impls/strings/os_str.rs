@@ -11,7 +11,7 @@ use crate::Mutations;
 use crate::helper::macros::delegate_methods;
 use crate::helper::shallow::{ObserverState, SerializeObserverState, shallow_observer};
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, QuasiObserver, Unsigned};
-use crate::observe::{DefaultSpec, Observe, RefObserve};
+use crate::observe::{DefaultSpec, Observe, RoObserve};
 
 #[cfg(unix)]
 pub(super) fn os_str_len(value: &OsStr) -> usize {
@@ -48,24 +48,24 @@ where
     }
 }
 
-pub struct OsStrRefObserverState {
+pub struct OsStrRoObserverState {
     raw_parts: Option<(NonNull<()>, usize)>,
 }
 
-impl Invalidate<OsStr> for OsStrRefObserverState {
+impl Invalidate<OsStr> for OsStrRoObserverState {
     fn invalidate(&mut self, value: &OsStr) {
         self.raw_parts
             .get_or_insert_with(|| (NonNull::from(value).cast::<()>(), os_str_len(value)));
     }
 }
 
-impl ObserverState<OsStr> for OsStrRefObserverState {
+impl ObserverState<OsStr> for OsStrRoObserverState {
     fn observe(_: &OsStr) -> Self {
         Self { raw_parts: None }
     }
 }
 
-impl SerializeObserverState<OsStr> for OsStrRefObserverState {
+impl SerializeObserverState<OsStr> for OsStrRoObserverState {
     fn flush(&mut self, value: &OsStr) -> Mutations {
         let Some((old_addr, old_len)) = self.raw_parts.take() else {
             return Mutations::new();
@@ -113,9 +113,9 @@ impl Observe for OsStr {
     type Spec = DefaultSpec;
 }
 
-impl RefObserve for OsStr {
+impl RoObserve for OsStr {
     type Observer<'ob, S, D>
-        = OsStrObserver<'ob, OsStrRefObserverState, S, D>
+        = OsStrObserver<'ob, OsStrRoObserverState, S, D>
     where
         Self: 'ob,
         D: Unsigned,

@@ -3,7 +3,7 @@ use std::ops::{Deref, DerefMut};
 
 use crate::general::Snapshot;
 use crate::helper::{AsDeref, AsDerefMut, QuasiObserver, Succ, Unsigned};
-use crate::observe::{Observer, RefObserve, SerializeObserver};
+use crate::observe::{Observer, RoObserve, SerializeObserver};
 use crate::{Mutations, Observe};
 
 /// Observer implementation for pointer types such as [`&T`](reference),
@@ -160,15 +160,15 @@ macro_rules! impl_deref_observe {
 impl_deref_observe! {
     impl [T: Observe + ?Sized] Observe for Box<T>;
     impl [T: Observe + ?Sized] Observe for &mut T;
-    impl [T: RefObserve + ?Sized] Observe for &T;
-    impl [T: RefObserve + ?Sized] Observe for std::rc::Rc<T>;
-    impl [T: RefObserve + ?Sized] Observe for std::sync::Arc<T>;
+    impl [T: RoObserve + ?Sized] Observe for &T;
+    impl [T: RoObserve + ?Sized] Observe for std::rc::Rc<T>;
+    impl [T: RoObserve + ?Sized] Observe for std::sync::Arc<T>;
 }
 
-macro_rules! impl_deref_ref_observe {
-    ($(impl $([$($gen:tt)*])? RefObserve for $ty:ty $(where { $($where:tt)+ })?;)*) => {
+macro_rules! impl_deref_ro_observe {
+    ($(impl $([$($gen:tt)*])? RoObserve for $ty:ty $(where { $($where:tt)+ })?;)*) => {
         $(
-            impl <$($($gen)*)?> RefObserve for $ty {
+            impl <$($($gen)*)?> RoObserve for $ty {
                 type Observer<'ob, S, D>
                     = DerefObserver<T::Observer<'ob, S, Succ<D>>>
                 where
@@ -182,12 +182,12 @@ macro_rules! impl_deref_ref_observe {
     };
 }
 
-impl_deref_ref_observe! {
-    impl [T: RefObserve + ?Sized] RefObserve for &T;
-    impl [T: RefObserve + ?Sized] RefObserve for &mut T;
-    impl [T: RefObserve + ?Sized] RefObserve for Box<T>;
-    impl [T: RefObserve + ?Sized] RefObserve for std::rc::Rc<T>;
-    impl [T: RefObserve + ?Sized] RefObserve for std::sync::Arc<T>;
+impl_deref_ro_observe! {
+    impl [T: RoObserve + ?Sized] RoObserve for &T;
+    impl [T: RoObserve + ?Sized] RoObserve for &mut T;
+    impl [T: RoObserve + ?Sized] RoObserve for Box<T>;
+    impl [T: RoObserve + ?Sized] RoObserve for std::rc::Rc<T>;
+    impl [T: RoObserve + ?Sized] RoObserve for std::sync::Arc<T>;
 }
 
 macro_rules! impl_snapshot {

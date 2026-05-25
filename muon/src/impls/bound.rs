@@ -6,7 +6,7 @@ use serde::Serialize;
 
 use crate::Mutations;
 use crate::general::Snapshot;
-use crate::helper::macros::{spec_impl_observe, spec_impl_ref_observe};
+use crate::helper::macros::{spec_impl_observe, spec_impl_ro_observe};
 use crate::helper::{AsDeref, AsDerefMut, AsDerefPtrExt, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
 use crate::observe::{Observer, SerializeObserver};
 
@@ -209,7 +209,7 @@ where
 }
 
 spec_impl_observe!(BoundObserveImpl, Bound<Self>, Bound<T>, BoundObserver);
-spec_impl_ref_observe!(BoundRefObserveImpl, Bound<Self>, Bound<T>, BoundObserver);
+spec_impl_ro_observe!(BoundRoObserveImpl, Bound<Self>, Bound<T>, BoundObserver);
 
 impl<T: Snapshot> Snapshot for Bound<T> {
     type Snapshot = Bound<T::Snapshot>;

@@ -9,7 +9,7 @@ use std::ops::{Deref, DerefMut};
 use serde::Serialize;
 use serde::ser::SerializeSeq;
 
-use crate::helper::macros::default_impl_ref_observe;
+use crate::helper::macros::default_impl_ro_observe;
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
 use crate::observe::{DefaultSpec, Observer, SerializeObserver};
 use crate::{MutationKind, Mutations, Observe, PathSegment};
@@ -609,8 +609,8 @@ impl<T: Observe> Observe for LinkedList<T> {
     type Spec = DefaultSpec;
 }
 
-default_impl_ref_observe! {
-    impl [T: Observe] RefObserve for LinkedList<T>;
+default_impl_ro_observe! {
+    impl [T: Observe] RoObserve for LinkedList<T>;
 }
 
 #[cfg(test)]

@@ -6,7 +6,7 @@ use serde::Serialize;
 
 use crate::Mutations;
 use crate::general::Snapshot;
-use crate::helper::macros::{spec_impl_observe_from_ref, spec_impl_ref_observe};
+use crate::helper::macros::{spec_impl_observe_from_ro, spec_impl_ro_observe};
 use crate::helper::{AsDeref, AsDerefMut, Pointer, QuasiObserver, Succ, Unsigned, Zero};
 use crate::mutation::SerializeRef;
 use crate::observe::{Observer, SerializeObserver};
@@ -142,8 +142,8 @@ where
     }
 }
 
-spec_impl_observe_from_ref!(WeakObserveImpl, std::rc::Weak<Self>, std::rc::Weak<T>, WeakObserver);
-spec_impl_ref_observe!(WeakRefObserveImpl, std::rc::Weak<Self>, std::rc::Weak<T>, WeakObserver);
+spec_impl_observe_from_ro!(WeakObserveImpl, std::rc::Weak<Self>, std::rc::Weak<T>, WeakObserver);
+spec_impl_ro_observe!(WeakRoObserveImpl, std::rc::Weak<Self>, std::rc::Weak<T>, WeakObserver);
 
 impl<T: Snapshot + ?Sized> Snapshot for std::rc::Weak<T> {
     type Snapshot = Option<T::Snapshot>;

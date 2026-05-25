@@ -10,7 +10,7 @@ use crate::helper::shallow::{ObserverState, SerializeObserverState, ShallowDeleg
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, Unsigned, Zero};
 use crate::impls::strings::TruncateLen;
 use crate::impls::strings::os_str::OsStrObserver;
-use crate::observe::{DefaultSpec, Observe, RefObserve};
+use crate::observe::{DefaultSpec, Observe, RoObserve};
 
 shallow_observer! {
     /// Observer implementation for [`Path`].
@@ -37,11 +37,11 @@ where
     }
 }
 
-pub struct PathRefObserverState {
+pub struct PathRoObserverState {
     raw_parts: Option<Option<(NonNull<()>, usize)>>,
 }
 
-impl Invalidate<Path> for PathRefObserverState {
+impl Invalidate<Path> for PathRoObserverState {
     fn invalidate(&mut self, value: &Path) {
         self.raw_parts.get_or_insert_with(|| {
             value
@@ -51,13 +51,13 @@ impl Invalidate<Path> for PathRefObserverState {
     }
 }
 
-impl ObserverState<Path> for PathRefObserverState {
+impl ObserverState<Path> for PathRoObserverState {
     fn observe(_: &Path) -> Self {
         Self { raw_parts: None }
     }
 }
 
-impl SerializeObserverState<Path> for PathRefObserverState {
+impl SerializeObserverState<Path> for PathRoObserverState {
     fn flush(&mut self, value: &Path) -> Mutations {
         let (old_addr, old_len) = match self.raw_parts.take() {
             None => return Mutations::new(),
@@ -99,9 +99,9 @@ impl Observe for Path {
     type Spec = DefaultSpec;
 }
 
-impl RefObserve for Path {
+impl RoObserve for Path {
     type Observer<'ob, S, D>
-        = PathObserver<'ob, PathRefObserverState, S, D>
+        = PathObserver<'ob, PathRoObserverState, S, D>
     where
         Self: 'ob,
         D: Unsigned,

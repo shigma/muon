@@ -12,7 +12,7 @@ use std::ops::{Deref, DerefMut, Index, IndexMut, RangeBounds};
 use serde::Serialize;
 
 use crate::general::Snapshot;
-use crate::helper::macros::default_impl_ref_observe;
+use crate::helper::macros::default_impl_ro_observe;
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
 use crate::observe::{DefaultSpec, Observer, SerializeObserver};
 use crate::{MutationKind, Mutations, Observe, PathSegment};
@@ -664,8 +664,8 @@ impl<K: Clone + Ord, V: Observe> Observe for BTreeMap<K, V> {
     type Spec = DefaultSpec;
 }
 
-default_impl_ref_observe! {
-    impl [K, V] RefObserve for BTreeMap<K, V>;
+default_impl_ro_observe! {
+    impl [K, V] RoObserve for BTreeMap<K, V>;
 }
 
 impl<K, V> Snapshot for BTreeMap<K, V>

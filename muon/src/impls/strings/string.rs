@@ -6,7 +6,7 @@ use std::ops::{AddAssign, Bound, Deref, DerefMut, Index, IndexMut, RangeBounds};
 use std::slice::SliceIndex;
 use std::string::Drain;
 
-use crate::helper::macros::{default_impl_ref_observe, delegate_methods};
+use crate::helper::macros::{default_impl_ro_observe, delegate_methods};
 use crate::helper::shallow::{ObserverState, SerializeObserverState, ShallowMut};
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, QuasiObserver, Succ, Unsigned, Zero};
 use crate::impls::strings::TruncateLen;
@@ -418,8 +418,8 @@ impl Observe for String {
     type Spec = DefaultSpec;
 }
 
-default_impl_ref_observe! {
-    impl RefObserve for String;
+default_impl_ro_observe! {
+    impl RoObserve for String;
 }
 
 #[cfg(test)]

@@ -8,104 +8,6 @@ pub use crate::general::snapshot::SnapshotSpec;
 use crate::helper::{AsDeref, AsDerefMut, Pointer, QuasiObserver, Unsigned, Zero};
 use crate::{Adapter, Mutations};
 
-/// A trait for types that can be observed for mutations.
-///
-/// Types implementing [`Observe`] can be wrapped in [`Observer`]s that track mutations. The trait
-/// is typically derived using the `#[derive(Observe)]` macro and used in `observe!` macros.
-///
-/// A single type `T` may have many possible [`Observer<'ob, Target = T>`] implementations in
-/// theory, each with different change-tracking strategies. The [`Observe`] trait selects one
-/// of these as the *default* observer to be used by `#[derive(Observe)]` and other generic code
-/// that needs an observer for `T`.
-///
-/// When you `#[derive(Observe)]` on a struct, the macro requires that each field type
-/// implements [`Observe`] so it can select an appropriate default observer for that field.
-/// The [`Observer`] associated type of each field's [`Observe`] implementation determines which
-/// observer will be instantiated in the generated code.
-///
-/// ## Example
-///
-/// ```
-/// use muon::adapter::Json;
-/// use muon::{Observe, observe};
-/// use serde::Serialize;
-///
-/// #[derive(Serialize, Observe)]
-/// struct MyStruct {
-///     field: String,
-/// }
-///
-/// let mut data = MyStruct { field: "value".to_string() };
-/// let Json(mutation) = observe!(data => {
-///     data.field.push_str(" modified");
-/// }).unwrap();
-/// ```
-pub trait Observe {
-    /// The default observer implementation for this type.
-    type Observer<'ob, S, D>: Observer<Head = S, InnerDepth = D>
-    where
-        Self: 'ob,
-        D: Unsigned,
-        S: AsDerefMut<D, Target = Self> + ?Sized + 'ob;
-
-    /// Marker type for selecting specialized observer implementations in wrapper types.
-    ///
-    /// For most types, this will be [`DefaultSpec`]. Types can specify [`SnapshotSpec`] to enable
-    /// snapshot-based observation strategies. For example, [`Option<T>`] uses
-    /// [`OptionObserver`](crate::impls::OptionObserver) when `T::Spec = DefaultSpec`, but
-    /// [`SnapshotObserver`](crate::general::SnapshotObserver) when `T::Spec = SnapshotSpec`.
-    type Spec;
-}
-
-/// Counterpart to [`Observe`] for reference types.
-///
-/// A type `T` implements [`RefObserve`] if `&T` can be observed. Analogous to the relationship
-/// between [`UnwindSafe`](std::panic::UnwindSafe) and
-/// [`RefUnwindSafe`](std::panic::RefUnwindSafe).
-///
-/// See also: [`Observe`].
-pub trait RefObserve {
-    /// The default observer implementation for `&Self`.
-    type Observer<'ob, S, D>: Observer<Head = S, InnerDepth = D>
-    where
-        Self: 'ob,
-        D: Unsigned,
-        S: AsDeref<D, Target = Self> + ?Sized + 'ob;
-
-    /// Marker type for selecting specialized observer implementations in wrapper types.
-    ///
-    /// For most types, this will be [`DefaultSpec`]. Types can specify [`SnapshotSpec`] to enable
-    /// snapshot-based observation strategies. For example, [`Option<T>`] uses
-    /// [`OptionObserver`](crate::impls::OptionObserver) when `T::Spec = DefaultSpec`, but
-    /// [`SnapshotObserver`](crate::general::SnapshotObserver) when `T::Spec = SnapshotSpec`.
-    type Spec;
-}
-
-/// Extension trait providing ergonomic methods for types implementing [`Observe`].
-///
-/// This trait is automatically implemented for all types that implement [`Observe`] and provides a
-/// convenient way to create observers without needing to specify type parameters.
-///
-/// ## Example
-///
-/// ```
-/// use muon::observe::ObserveExt;
-///
-/// let mut data = 42;
-/// let ob = data.__observe();
-/// ```
-pub trait ObserveExt: Observe {
-    /// Creates an observer for this value.
-    ///
-    /// This is a convenience method that calls [`Observer::observe`] with the appropriate type
-    /// parameters automatically inferred.
-    fn __observe<'ob>(&'ob mut self) -> Self::Observer<'ob, Self, Zero> {
-        unsafe { Observer::observe(self) }
-    }
-}
-
-impl<T: Observe + ?Sized> ObserveExt for T {}
-
 /// A trait for observer types that wrap and track mutations to values.
 ///
 /// Observers provide transparent access to the underlying value while recording any mutations that
@@ -271,6 +173,121 @@ impl<T: SerializeObserver> SerializeObserverExt for T {}
 /// attributes.
 pub struct DefaultSpec;
 
+/// A trait for types that can be observed for mutations.
+///
+/// Types implementing [`Observe`] can be wrapped in [`Observer`]s that track mutations. The trait
+/// is typically derived using the `#[derive(Observe)]` macro and used in `observe!` macros.
+///
+/// A single type `T` may have many possible [`Observer<'ob, Target = T>`] implementations in
+/// theory, each with different change-tracking strategies. The [`Observe`] trait selects one
+/// of these as the *default* observer to be used by `#[derive(Observe)]` and other generic code
+/// that needs an observer for `T`.
+///
+/// When you `#[derive(Observe)]` on a struct, the macro requires that each field type
+/// implements [`Observe`] so it can select an appropriate default observer for that field.
+/// The [`Observer`] associated type of each field's [`Observe`] implementation determines which
+/// observer will be instantiated in the generated code.
+///
+/// ## Example
+///
+/// ```
+/// use muon::adapter::Json;
+/// use muon::{Observe, observe};
+/// use serde::Serialize;
+///
+/// #[derive(Serialize, Observe)]
+/// struct MyStruct {
+///     field: String,
+/// }
+///
+/// let mut data = MyStruct { field: "value".to_string() };
+/// let Json(mutation) = observe!(data => {
+///     data.field.push_str(" modified");
+/// }).unwrap();
+/// ```
+pub trait Observe {
+    /// The default observer implementation for this type.
+    type Observer<'ob, S, D>: Observer<Head = S, InnerDepth = D>
+    where
+        Self: 'ob,
+        D: Unsigned,
+        S: AsDerefMut<D, Target = Self> + ?Sized + 'ob;
+
+    /// Marker type for selecting specialized observer implementations in wrapper types.
+    ///
+    /// For most types, this will be [`DefaultSpec`]. Types can specify [`SnapshotSpec`] to enable
+    /// snapshot-based observation strategies. For example, [`Option<T>`] uses
+    /// [`OptionObserver`](crate::impls::OptionObserver) when `T::Spec = DefaultSpec`, but
+    /// [`SnapshotObserver`](crate::general::SnapshotObserver) when `T::Spec = SnapshotSpec`.
+    type Spec;
+}
+
+/// Counterpart to [`Observe`] for shared-reference types.
+///
+/// A type `T` implements [`RoObserve`] if it can be observed through a shared reference (e.g.,
+/// `&T`, [`Rc<T>`](std::rc::Rc), [`Arc<T>`](std::sync::Arc)).
+///
+/// See also: [`Observe`], [`RwObserve`].
+pub trait RoObserve {
+    /// The default observer implementation for `&Self`.
+    type Observer<'ob, S, D>: Observer<Head = S, InnerDepth = D>
+    where
+        Self: 'ob,
+        D: Unsigned,
+        S: AsDeref<D, Target = Self> + ?Sized + 'ob;
+
+    /// Marker type for selecting specialized observer implementations in wrapper types.
+    ///
+    /// For most types, this will be [`DefaultSpec`]. Types can specify [`SnapshotSpec`] to enable
+    /// snapshot-based observation strategies. For example, [`Option<T>`] uses
+    /// [`OptionObserver`](crate::impls::OptionObserver) when `T::Spec = DefaultSpec`, but
+    /// [`SnapshotObserver`](crate::general::SnapshotObserver) when `T::Spec = SnapshotSpec`.
+    type Spec;
+}
+
+/// Counterpart to [`Observe`] for interior-mutable types.
+///
+/// A type `T` implements [`RwObserve`] if it can be observed through interior mutability (e.g.,
+/// [`RefCell<T>`](std::cell::RefCell), [`Mutex<T>`](std::sync::Mutex)).
+///
+/// See also: [`Observe`], [`RoObserve`].
+pub trait RwObserve {
+    /// The default observer implementation for interior-mutable wrappers.
+    type Observer<'ob, S, D>: Observer<Head = S, InnerDepth = D>
+    where
+        Self: 'ob,
+        D: Unsigned,
+        S: AsDeref<D, Target = Self> + ?Sized + 'ob;
+
+    /// Marker type for selecting specialized observer implementations in wrapper types.
+    type Spec;
+}
+
+/// Extension trait providing ergonomic methods for types implementing [`Observe`].
+///
+/// This trait is automatically implemented for all types that implement [`Observe`] and provides a
+/// convenient way to create observers without needing to specify type parameters.
+///
+/// ## Example
+///
+/// ```
+/// use muon::observe::ObserveExt;
+///
+/// let mut data = 42;
+/// let ob = data.__observe();
+/// ```
+pub trait ObserveExt: Observe {
+    /// Creates an observer for this value.
+    ///
+    /// This is a convenience method that calls [`Observer::observe`] with the appropriate type
+    /// parameters automatically inferred.
+    fn __observe<'ob>(&'ob mut self) -> Self::Observer<'ob, Self, Zero> {
+        unsafe { Observer::observe(self) }
+    }
+}
+
+impl<T: Observe + ?Sized> ObserveExt for T {}
+
 /// Resolves the concrete [`Observer`] type for a given [`Observe`] type.
 ///
 /// This is a convenience alias used primarily by the derive macro to refer to field observer types
@@ -285,16 +302,25 @@ pub struct DefaultSpec;
 ///   layers between `S` and `T`).
 pub type DefaultObserver<'ob, T, S = T, D = Zero> = <T as Observe>::Observer<'ob, S, D>;
 
-/// Resolves the concrete [`Observer`] type for a given [`RefObserve`] type.
+/// Resolves the concrete [`Observer`] type for a given [`RoObserve`] type.
 ///
 /// This is a convenience alias used primarily by the derive macro to refer to field observer types
 /// without repeating the full associated type syntax.
 ///
 /// ## Type Parameters
 ///
-/// - `T`: The observed type (must implement [`RefObserve`]).
+/// - `T`: The observed type (must implement [`RoObserve`]).
 /// - `S`: The head type stored in the observer's [`Pointer`]. Defaults to `T` (for top-level or
 ///   struct-field observers where the head is the field itself).
 /// - `D`: The [`InnerDepth`](QuasiObserver::InnerDepth). Defaults to [`Zero`] (no extra dereference
 ///   layers between `S` and `T`).
-pub type DefaultRefObserver<'ob, T, S = T, D = Zero> = <T as RefObserve>::Observer<'ob, S, D>;
+pub type DefaultRoObserver<'ob, T, S = T, D = Zero> = <T as RoObserve>::Observer<'ob, S, D>;
+
+/// Resolves the concrete [`Observer`] type for a given [`RwObserve`] type.
+///
+/// ## Type Parameters
+///
+/// - `T`: The observed type (must implement [`RwObserve`]).
+/// - `S`: The head type stored in the observer's [`Pointer`]. Defaults to `T`.
+/// - `D`: The [`InnerDepth`](QuasiObserver::InnerDepth). Defaults to [`Zero`].
+pub type DefaultRwObserver<'ob, T, S = T, D = Zero> = <T as RwObserve>::Observer<'ob, S, D>;

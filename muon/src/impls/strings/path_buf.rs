@@ -11,7 +11,7 @@ use super::TruncateLen;
 use super::os_str::OsStrObserver;
 use super::os_string::OsStringObserver;
 use super::path::PathObserver;
-use crate::helper::macros::{default_impl_ref_observe, delegate_methods};
+use crate::helper::macros::{default_impl_ro_observe, delegate_methods};
 use crate::helper::shallow::{ObserverState, SerializeObserverState, ShallowDelegate};
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
 use crate::observe::{DefaultSpec, Observer, SerializeObserver};
@@ -274,8 +274,8 @@ impl Observe for PathBuf {
     type Spec = DefaultSpec;
 }
 
-default_impl_ref_observe! {
-    impl RefObserve for PathBuf;
+default_impl_ro_observe! {
+    impl RoObserve for PathBuf;
 }
 
 #[cfg(test)]

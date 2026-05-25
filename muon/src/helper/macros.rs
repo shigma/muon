@@ -50,12 +50,12 @@ macro_rules! spec_impl_observe {
     };
 }
 
-macro_rules! spec_impl_observe_from_ref {
+macro_rules! spec_impl_observe_from_ro {
     ($(#[$($tt:tt)*])* $helper:ident, $ty_self:ty, $ty_t:ty, $default:ident $(, const $arg:ident: $arg_ty:ty)* $(,)?) => {
         $(#[$($tt)*])*
         impl<T $(, const $arg: $arg_ty)*> $crate::observe::Observe for $ty_t
         where
-            T: $crate::observe::RefObserve + $helper<T::Spec>,
+            T: $crate::observe::RoObserve + $helper<T::Spec>,
         {
             type Observer<'ob, S, D>
                 = <T as $helper<T::Spec>>::Observer<'ob, S, D $(, $arg)*>
@@ -78,7 +78,7 @@ macro_rules! spec_impl_observe_from_ref {
 
         impl<T> $helper<$crate::observe::DefaultSpec> for T
         where
-            T: $crate::observe::RefObserve<Spec = $crate::observe::DefaultSpec>,
+            T: $crate::observe::RoObserve<Spec = $crate::observe::DefaultSpec>,
         {
             type Observer<'ob, S, D $(, const $arg: $arg_ty)*>
                 = $default<T::Observer<'ob, T, Zero>, S, D>
@@ -90,7 +90,7 @@ macro_rules! spec_impl_observe_from_ref {
 
         impl<T> $helper<$crate::observe::SnapshotSpec> for T
         where
-            T: $crate::general::Snapshot + $crate::observe::RefObserve<Spec = $crate::observe::SnapshotSpec>,
+            T: $crate::general::Snapshot + $crate::observe::RoObserve<Spec = $crate::observe::SnapshotSpec>,
         {
             type Observer<'ob, S, D $(, const $arg: $arg_ty)*>
                 = $crate::general::SnapshotObserver<'ob, S, D>
@@ -102,12 +102,12 @@ macro_rules! spec_impl_observe_from_ref {
     };
 }
 
-macro_rules! spec_impl_ref_observe {
+macro_rules! spec_impl_ro_observe {
     ($(#[$($tt:tt)*])* $helper:ident, $ty_self:ty, $ty_t:ty, $default:ident $(, const $arg:ident: $arg_ty:ty)* $(,)?) => {
         $(#[$($tt)*])*
-        impl<T $(, const $arg: $arg_ty)*> $crate::observe::RefObserve for $ty_t
+        impl<T $(, const $arg: $arg_ty)*> $crate::observe::RoObserve for $ty_t
         where
-            T: $crate::observe::RefObserve + $helper<T::Spec>,
+            T: $crate::observe::RoObserve + $helper<T::Spec>,
         {
             type Observer<'ob, S, D>
                 = <T as $helper<T::Spec>>::Observer<'ob, S, D $(, $arg)*>
@@ -130,7 +130,7 @@ macro_rules! spec_impl_ref_observe {
 
         impl<T> $helper<$crate::observe::DefaultSpec> for T
         where
-            T: $crate::observe::RefObserve<Spec = $crate::observe::DefaultSpec>,
+            T: $crate::observe::RoObserve<Spec = $crate::observe::DefaultSpec>,
         {
             type Observer<'ob, S, D $(, const $arg: $arg_ty)*>
                 = $default<$($arg,)* T::Observer<'ob, T, Zero>, S, D>
@@ -142,7 +142,7 @@ macro_rules! spec_impl_ref_observe {
 
         impl<T> $helper<$crate::observe::SnapshotSpec> for T
         where
-            T: $crate::general::Snapshot + $crate::observe::RefObserve<Spec = $crate::observe::SnapshotSpec>,
+            T: $crate::general::Snapshot + $crate::observe::RoObserve<Spec = $crate::observe::SnapshotSpec>,
         {
             type Observer<'ob, S, D $(, const $arg: $arg_ty)*>
                 = $crate::general::SnapshotObserver<'ob, S, D>
@@ -154,10 +154,10 @@ macro_rules! spec_impl_ref_observe {
     };
 }
 
-macro_rules! default_impl_ref_observe {
-    ($(impl $([$($gen:tt)*])? RefObserve for $ty:ty $(where { $($where:tt)+ })?;)*) => {
+macro_rules! default_impl_ro_observe {
+    ($(impl $([$($gen:tt)*])? RoObserve for $ty:ty $(where { $($where:tt)+ })?;)*) => {
         $(
-            impl <$($($gen)*)?> $crate::observe::RefObserve for $ty {
+            impl <$($($gen)*)?> $crate::observe::RoObserve for $ty {
                 type Observer<'ob, S, D>
                     = $crate::general::PointerObserver<'ob, S, D>
                 where
@@ -259,8 +259,8 @@ macro_rules! delegate_methods {
     };
 }
 
-pub(crate) use default_impl_ref_observe;
+pub(crate) use default_impl_ro_observe;
 pub(crate) use delegate_methods;
 pub(crate) use spec_impl_observe;
-pub(crate) use spec_impl_observe_from_ref;
-pub(crate) use spec_impl_ref_observe;
+pub(crate) use spec_impl_observe_from_ro;
+pub(crate) use spec_impl_ro_observe;

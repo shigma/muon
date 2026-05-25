@@ -5,7 +5,7 @@ use std::ops::{AddAssign, Deref, DerefMut};
 use crate::general::Snapshot;
 use crate::helper::{AsDeref, AsDerefMut, AsDerefPtrExt, Pointer, QuasiObserver, Succ, Unsigned, Zero};
 use crate::impls::{DerefObserver, StringObserver};
-use crate::observe::{DefaultSpec, Observer, RefObserve, SerializeObserver};
+use crate::observe::{DefaultSpec, Observer, RoObserve, SerializeObserver};
 use crate::{Mutations, Observe};
 
 /// Observer implementation for [`Cow<'a, T>`].
@@ -208,7 +208,7 @@ where
 
 impl<'a, T> Observe for Cow<'a, T>
 where
-    T: ToOwned + RefObserve + ?Sized + 'a,
+    T: ToOwned + RoObserve + ?Sized + 'a,
     T::Owned: Observe,
 {
     type Observer<'ob, S, D>
@@ -221,9 +221,9 @@ where
     type Spec = DefaultSpec;
 }
 
-impl<'a, T> RefObserve for Cow<'a, T>
+impl<'a, T> RoObserve for Cow<'a, T>
 where
-    T: RefObserve + ToOwned + ?Sized + 'a,
+    T: RoObserve + ToOwned + ?Sized + 'a,
 {
     type Observer<'ob, S, D>
         = DerefObserver<T::Observer<'ob, S, Succ<D>>>
