@@ -1,6 +1,6 @@
 [package]
 name = "muon-derive"
-version = "0.18.3"
+version = "0.20.0"
 edition = "2024"
 license = "MIT"
 authors = [

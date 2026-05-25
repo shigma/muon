@@ -11,7 +11,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-muon = { version = "0.19", features = ["json"] }
+muon = { version = "0.20", features = ["json"] }
 ```
 
 ## Basic Usage
