@@ -178,13 +178,18 @@ const _: () = {
                 Self::C {} => BarSnapshot::C {},
             }
         }
-        #[allow(clippy::match_like_matches_macro)]
-        fn eq_snapshot(&self, snapshot: &Self::Snapshot) -> bool {
+    }
+    #[automatically_derived]
+    impl ::muon::general::SerializeSnapshot for Bar
+    where
+        Self: ::serde::Serialize,
+    {
+        fn flush(&self, snapshot: Self::Snapshot) -> ::muon::Mutations {
             match (self, snapshot) {
-                (Self::A, BarSnapshot::A) => true,
-                (Self::B(), BarSnapshot::B()) => true,
-                (Self::C {}, BarSnapshot::C {}) => true,
-                _ => false,
+                (Self::A, BarSnapshot::A) => ::muon::Mutations::new(),
+                (Self::B(), BarSnapshot::B()) => ::muon::Mutations::new(),
+                (Self::C {}, BarSnapshot::C {}) => ::muon::Mutations::new(),
+                _ => ::muon::Mutations::replace(self),
             }
         }
     }

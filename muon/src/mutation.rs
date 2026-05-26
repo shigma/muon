@@ -477,9 +477,7 @@ impl Mutations {
     /// because the pointed-to value's validity is guaranteed by the observer's `'ob` lifetime —
     /// serialization always completes before the observed data is dropped.
     pub fn replace_owned<T: serde::Serialize>(value: T) -> Self {
-        let boxed = unsafe {
-            std::mem::transmute::<Box<dyn Serialize + '_>, Box<dyn Serialize>>(Box::new(value))
-        };
+        let boxed = unsafe { std::mem::transmute::<Box<dyn Serialize + '_>, Box<dyn Serialize>>(Box::new(value)) };
         MutationKind::Replace(boxed).into()
     }
 
@@ -527,9 +525,7 @@ impl Mutations {
     /// serialization always completes before the observed data is dropped.
     #[cfg(feature = "append")]
     pub fn append_owned<T: serde::Serialize>(value: T) -> Self {
-        let boxed = unsafe {
-            std::mem::transmute::<Box<dyn Serialize + '_>, Box<dyn Serialize>>(Box::new(value))
-        };
+        let boxed = unsafe { std::mem::transmute::<Box<dyn Serialize + '_>, Box<dyn Serialize>>(Box::new(value)) };
         MutationKind::Append(boxed).into()
     }
 }

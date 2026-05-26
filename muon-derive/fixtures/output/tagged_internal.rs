@@ -251,8 +251,12 @@ pub struct Qux {}
 impl ::muon::general::Snapshot for Qux {
     type Snapshot = ();
     fn to_snapshot(&self) {}
-    fn eq_snapshot(&self, snapshot: &()) -> bool {
-        true
+}
+#[rustfmt::skip]
+#[automatically_derived]
+impl ::muon::general::SerializeSnapshot for Qux {
+    fn flush(&self, _snapshot: ()) -> ::muon::Mutations {
+        ::muon::Mutations::new()
     }
 }
 #[rustfmt::skip]

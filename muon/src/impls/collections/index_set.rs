@@ -596,7 +596,10 @@ impl<T: Serialize + Clone + Eq + Hash> SerializeSnapshot for IndexSet<T> {
         }
         if self.len() > prefix_len {
             #[cfg(feature = "append")]
-            mutations.extend(Mutations::append_owned(AppendTail { set: self, skip: prefix_len }));
+            mutations.extend(Mutations::append_owned(AppendTail {
+                set: self,
+                skip: prefix_len,
+            }));
             #[cfg(not(feature = "append"))]
             return Mutations::replace(self);
         }

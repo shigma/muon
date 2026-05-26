@@ -634,7 +634,10 @@ impl<T: SerializeSnapshot> SerializeSnapshot for LinkedList<T> {
         if self.len() > snapshot.len() {
             #[cfg(feature = "append")]
             {
-                let tail = AppendTail { list: self as *const LinkedList<T>, skip: snapshot.len() };
+                let tail = AppendTail {
+                    list: self as *const LinkedList<T>,
+                    skip: snapshot.len(),
+                };
                 mutations.extend(Mutations::append_owned(tail));
             }
             #[cfg(not(feature = "append"))]

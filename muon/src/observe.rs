@@ -4,9 +4,9 @@
 //! the README for a detailed overview of the observer architecture, dereference chains, and
 //! mutation tracking primitives.
 
-pub use crate::general::snapshot::SnapshotSpec;
-use crate::general::snapshot::Snapshot;
 use crate::general::SnapshotObserver;
+use crate::general::snapshot::Snapshot;
+pub use crate::general::snapshot::SnapshotSpec;
 use crate::helper::{AsDeref, AsDerefMut, Pointer, QuasiObserver, Unsigned, Zero};
 use crate::{Adapter, Mutations};
 

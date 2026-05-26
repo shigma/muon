@@ -207,7 +207,10 @@ impl<T: Serialize + Clone + Ord> SerializeSnapshot for BinaryHeap<T> {
         }
         if self.len() > prefix_len {
             #[cfg(feature = "append")]
-            mutations.extend(Mutations::append_owned(AppendTail { heap: self, skip: prefix_len }));
+            mutations.extend(Mutations::append_owned(AppendTail {
+                heap: self,
+                skip: prefix_len,
+            }));
             #[cfg(not(feature = "append"))]
             return Mutations::replace(self);
         }

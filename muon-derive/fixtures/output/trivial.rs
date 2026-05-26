@@ -25,14 +25,14 @@ pub struct Bar<T> {
 const _: () = {
     pub struct BarSnapshot<T>
     where
-        Vec<T>: ::muon::general::Snapshot,
+        Vec<T>: ::muon::general::SerializeSnapshot,
     {
         a: <Vec<T> as ::muon::general::Snapshot>::Snapshot,
     }
     #[automatically_derived]
     impl<T> ::muon::general::Snapshot for Bar<T>
     where
-        Vec<T>: ::muon::general::Snapshot,
+        Vec<T>: ::muon::general::SerializeSnapshot,
     {
         type Snapshot = BarSnapshot<T>;
         fn to_snapshot(&self) -> Self::Snapshot {
@@ -40,9 +40,23 @@ const _: () = {
                 a: ::muon::general::Snapshot::to_snapshot(&self.a),
             }
         }
-        #[allow(clippy::match_like_matches_macro)]
-        fn eq_snapshot(&self, snapshot: &Self::Snapshot) -> bool {
-            ::muon::general::Snapshot::eq_snapshot(&self.a, &snapshot.a)
+    }
+    #[automatically_derived]
+    impl<T> ::muon::general::SerializeSnapshot for Bar<T>
+    where
+        Vec<T>: ::muon::general::SerializeSnapshot,
+        Self: ::serde::Serialize,
+    {
+        fn flush(&self, snapshot: Self::Snapshot) -> ::muon::Mutations {
+            let a = ::muon::general::SerializeSnapshot::flush(&self.a, snapshot.a)
+                .with_prefix("a");
+            if a.is_replace() {
+                ::muon::Mutations::replace(self)
+            } else {
+                let mut mutations = ::muon::Mutations::new();
+                mutations.extend(a);
+                mutations
+            }
         }
     }
 };
@@ -67,8 +81,12 @@ pub struct NoopStruct {}
 impl ::muon::general::Snapshot for NoopStruct {
     type Snapshot = ();
     fn to_snapshot(&self) {}
-    fn eq_snapshot(&self, snapshot: &()) -> bool {
-        true
+}
+#[rustfmt::skip]
+#[automatically_derived]
+impl ::muon::general::SerializeSnapshot for NoopStruct {
+    fn flush(&self, _snapshot: ()) -> ::muon::Mutations {
+        ::muon::Mutations::new()
     }
 }
 #[rustfmt::skip]

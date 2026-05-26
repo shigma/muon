@@ -19,7 +19,6 @@ use crate::impls::slices::range_set::RangeSet;
 use crate::observe::{DefaultSpec, Observer, SerializeObserver};
 use crate::{MutationKind, Mutations, Observe, PathSegment};
 
-
 /// Lazily-initialized element observer storage for [`VecDeque`]-backed observers.
 ///
 /// Uses a [`VecDeque<MaybeUninit<O>>`] for O(1) front/back operations, and a
@@ -952,7 +951,10 @@ impl<T: SerializeSnapshot> SerializeSnapshot for VecDeque<T> {
         if self.len() > snapshot.len() {
             #[cfg(feature = "append")]
             {
-                let tail = AppendTail { deque: self as *const VecDeque<T>, skip: snapshot.len() };
+                let tail = AppendTail {
+                    deque: self as *const VecDeque<T>,
+                    skip: snapshot.len(),
+                };
                 mutations.extend(Mutations::append_owned(tail));
             }
             #[cfg(not(feature = "append"))]

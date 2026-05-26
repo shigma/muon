@@ -657,7 +657,10 @@ mod snapshot_tests {
         let slice: &[i32] = &[1, 99, 3, 4, 5];
         let snapshot = [1i32, 2, 3].as_slice().to_snapshot();
         let Json(mutation) = Json::from_mutations(slice.flush(snapshot)).unwrap();
-        assert_eq!(mutation, Some(batch!(_, append!(_, json!([4, 5])), replace!(-4, json!(99)))));
+        assert_eq!(
+            mutation,
+            Some(batch!(_, append!(_, json!([4, 5])), replace!(-4, json!(99))))
+        );
     }
 
     #[test]

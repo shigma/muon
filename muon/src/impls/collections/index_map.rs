@@ -985,7 +985,10 @@ where
         }
         if self.len() > prefix_len {
             #[cfg(feature = "append")]
-            mutations.extend(Mutations::append_owned(AppendTail { map: self, skip: prefix_len }));
+            mutations.extend(Mutations::append_owned(AppendTail {
+                map: self,
+                skip: prefix_len,
+            }));
             #[cfg(not(feature = "append"))]
             return Mutations::replace(self);
         }
@@ -1592,7 +1595,10 @@ mod snapshot_tests {
         let map = IndexMap::from([("a", 1), ("x", 10), ("y", 20)]);
         let snapshot = IndexMap::from([("a", 1), ("b", 2), ("c", 3), ("d", 4)]).to_snapshot();
         let Json(mutation) = Json::from_mutations(map.flush(snapshot)).unwrap();
-        assert_eq!(mutation, Some(batch!(_, truncate!(_, 3), append!(_, json!({"x": 10, "y": 20})))));
+        assert_eq!(
+            mutation,
+            Some(batch!(_, truncate!(_, 3), append!(_, json!({"x": 10, "y": 20}))))
+        );
     }
 
     #[test]
@@ -1600,6 +1606,9 @@ mod snapshot_tests {
         let map = IndexMap::from([("a", 99), ("b", 2), ("c", 3)]);
         let snapshot = IndexMap::from([("a", 1), ("b", 2)]).to_snapshot();
         let Json(mutation) = Json::from_mutations(map.flush(snapshot)).unwrap();
-        assert_eq!(mutation, Some(batch!(_, append!(_, json!({"c": 3})), replace!(a, json!(99)))));
+        assert_eq!(
+            mutation,
+            Some(batch!(_, append!(_, json!({"c": 3})), replace!(a, json!(99))))
+        );
     }
 }
