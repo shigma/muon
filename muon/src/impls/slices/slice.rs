@@ -17,7 +17,7 @@ use crate::impls::slices::helper::{GetDisjointMutIndexImpl, SliceIndexImpl};
 use crate::impls::slices::range_set::RangeSet;
 use crate::impls::vec::VecObserverState;
 use crate::observe::{DefaultSpec, Observer, RoObserve, SerializeObserver};
-use crate::{Mutations, Observe};
+use crate::{MutationKind, Mutations, Observe, PathSegment};
 
 /// Trait for managing the internal observer storage within a slice observer.
 ///
@@ -504,15 +504,34 @@ impl<T: Snapshot> Snapshot for [T] {
     }
 }
 
-impl<T: SerializeSnapshot + 'static> SerializeSnapshot for [T] {
+impl<T: SerializeSnapshot> SerializeSnapshot for [T] {
     fn flush(&self, snapshot: Box<[T::Snapshot]>) -> Mutations {
-        if self.len() != snapshot.len()
-            || self.iter().zip(snapshot.into_vec()).any(|(v, s)| !v.flush(s).is_empty())
-        {
-            Mutations::replace(self)
-        } else {
-            Mutations::new()
+        let min_len = self.len().min(snapshot.len());
+
+        let mut mutations = Mutations::new();
+        if snapshot.len() > self.len() {
+            #[cfg(feature = "truncate")]
+            mutations.extend(MutationKind::Truncate(snapshot.len() - self.len()));
+            #[cfg(not(feature = "truncate"))]
+            return Mutations::replace(self);
         }
+        if self.len() > snapshot.len() {
+            #[cfg(feature = "append")]
+            mutations.extend(Mutations::append(&self[snapshot.len()..]));
+            #[cfg(not(feature = "append"))]
+            return Mutations::replace(self);
+        }
+
+        let mut is_replace = true;
+        for (i, (v, s)) in self[..min_len].iter().zip(snapshot).enumerate().rev() {
+            let mutations_i = v.flush(s);
+            is_replace &= mutations_i.is_replace();
+            mutations.insert(PathSegment::Negative(self.len() - i), mutations_i);
+        }
+        if is_replace && !mutations.is_empty() {
+            return Mutations::replace(self);
+        }
+        mutations
     }
 }
 
@@ -574,5 +593,94 @@ mod tests {
         // Even though sort is a no-op here (already sorted), DerefMut was triggered
         // so a Replace should be emitted. With diff type `()`, this bug causes None.
         assert!(mutation.is_some(), "DerefMut on Box<[T]> should trigger Replace");
+    }
+}
+
+#[cfg(test)]
+mod snapshot_tests {
+    use muon_test_utils::*;
+    use serde_json::json;
+
+    use crate::adapter::{Adapter, Json};
+    use crate::general::{SerializeSnapshot, Snapshot};
+
+    #[test]
+    fn no_change() {
+        let slice: &[i32] = &[1, 2, 3];
+        let snapshot = slice.to_snapshot();
+        let mutations = slice.flush(snapshot);
+        assert!(mutations.is_empty());
+    }
+
+    #[test]
+    fn same_len_single_change() {
+        let slice: &[i32] = &[1, 99, 3];
+        let snapshot = [1i32, 2, 3].as_slice().to_snapshot();
+        let Json(mutation) = Json::from_mutations(slice.flush(snapshot)).unwrap();
+        assert_eq!(mutation, Some(replace!(-2, json!(99))));
+    }
+
+    #[test]
+    fn same_len_all_changed() {
+        let slice: &[i32] = &[4, 5, 6];
+        let snapshot = [1i32, 2, 3].as_slice().to_snapshot();
+        let Json(mutation) = Json::from_mutations(slice.flush(snapshot)).unwrap();
+        assert_eq!(mutation, Some(replace!(_, json!([4, 5, 6]))));
+    }
+
+    #[test]
+    fn shorter_than_snapshot() {
+        let slice: &[i32] = &[1, 2];
+        let snapshot = [1i32, 2, 3, 4].as_slice().to_snapshot();
+        let Json(mutation) = Json::from_mutations(slice.flush(snapshot)).unwrap();
+        assert_eq!(mutation, Some(truncate!(_, 2)));
+    }
+
+    #[test]
+    fn shorter_with_change() {
+        let slice: &[i32] = &[1, 99];
+        let snapshot = [1i32, 2, 3, 4].as_slice().to_snapshot();
+        let Json(mutation) = Json::from_mutations(slice.flush(snapshot)).unwrap();
+        assert_eq!(mutation, Some(batch!(_, truncate!(_, 2), replace!(-1, json!(99)))));
+    }
+
+    #[test]
+    fn longer_than_snapshot() {
+        let slice: &[i32] = &[1, 2, 3, 4, 5];
+        let snapshot = [1i32, 2, 3].as_slice().to_snapshot();
+        let Json(mutation) = Json::from_mutations(slice.flush(snapshot)).unwrap();
+        assert_eq!(mutation, Some(append!(_, json!([4, 5]))));
+    }
+
+    #[test]
+    fn longer_with_change() {
+        let slice: &[i32] = &[1, 99, 3, 4, 5];
+        let snapshot = [1i32, 2, 3].as_slice().to_snapshot();
+        let Json(mutation) = Json::from_mutations(slice.flush(snapshot)).unwrap();
+        assert_eq!(mutation, Some(batch!(_, append!(_, json!([4, 5])), replace!(-4, json!(99)))));
+    }
+
+    #[test]
+    fn longer_all_common_changed() {
+        let slice: &[i32] = &[4, 5, 6, 7, 8];
+        let snapshot = [1i32, 2, 3].as_slice().to_snapshot();
+        let Json(mutation) = Json::from_mutations(slice.flush(snapshot)).unwrap();
+        assert_eq!(mutation, Some(replace!(_, json!([4, 5, 6, 7, 8]))));
+    }
+
+    #[test]
+    fn empty_to_nonempty() {
+        let slice: &[i32] = &[1, 2, 3];
+        let snapshot = <[i32]>::to_snapshot(&[]);
+        let Json(mutation) = Json::from_mutations(slice.flush(snapshot)).unwrap();
+        assert_eq!(mutation, Some(replace!(_, json!([1, 2, 3]))));
+    }
+
+    #[test]
+    fn nonempty_to_empty() {
+        let slice: &[i32] = &[];
+        let snapshot = [1i32, 2, 3].as_slice().to_snapshot();
+        let Json(mutation) = Json::from_mutations(slice.flush(snapshot)).unwrap();
+        assert_eq!(mutation, Some(replace!(_, json!([]))));
     }
 }

@@ -9,6 +9,7 @@ use std::ops::{Deref, DerefMut};
 use serde::Serialize;
 use serde::ser::SerializeSeq;
 
+use crate::general::{SerializeSnapshot, Snapshot};
 use crate::helper::macros::default_impl_ro_observe;
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
 use crate::observe::{DefaultSpec, Observer, SerializeObserver};
@@ -611,6 +612,46 @@ impl<T: Observe> Observe for LinkedList<T> {
 
 default_impl_ro_observe! {
     impl [T: Observe] RoObserve for LinkedList<T>;
+}
+
+impl<T: Snapshot> Snapshot for LinkedList<T> {
+    type Snapshot = Box<[T::Snapshot]>;
+
+    fn to_snapshot(&self) -> Self::Snapshot {
+        self.iter().map(|item| item.to_snapshot()).collect()
+    }
+}
+
+impl<T: SerializeSnapshot> SerializeSnapshot for LinkedList<T> {
+    fn flush(&self, snapshot: Self::Snapshot) -> Mutations {
+        let mut mutations = Mutations::new();
+        if snapshot.len() > self.len() {
+            #[cfg(feature = "truncate")]
+            mutations.extend(MutationKind::Truncate(snapshot.len() - self.len()));
+            #[cfg(not(feature = "truncate"))]
+            return Mutations::replace(self);
+        }
+        if self.len() > snapshot.len() {
+            #[cfg(feature = "append")]
+            {
+                let tail = AppendTail { list: self as *const LinkedList<T>, skip: snapshot.len() };
+                mutations.extend(Mutations::append_owned(tail));
+            }
+            #[cfg(not(feature = "append"))]
+            return Mutations::replace(self);
+        }
+
+        let mut is_replace = true;
+        for (i, (v, s)) in self.iter().zip(snapshot).enumerate().rev() {
+            let mutations_i = v.flush(s);
+            is_replace &= mutations_i.is_replace();
+            mutations.insert(PathSegment::Negative(self.len() - i), mutations_i);
+        }
+        if is_replace && !mutations.is_empty() {
+            return Mutations::replace(self);
+        }
+        mutations
+    }
 }
 
 #[cfg(test)]

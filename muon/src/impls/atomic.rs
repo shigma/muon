@@ -1,8 +1,9 @@
 use std::sync::atomic::Ordering;
 
-use crate::general::{Snapshot, SnapshotObserver};
+use crate::general::{SerializeSnapshot, Snapshot, SnapshotObserver};
 use crate::helper::{AsDeref, AsDerefMut, Unsigned};
-use crate::observe::{DefaultSpec, Observe, RoObserve};
+use crate::observe::{DefaultSpec, RoObserve};
+use crate::{Mutations, Observe};
 
 macro_rules! impl_atomic {
     ($($ident:ident => $output:ty),* $(,)?) => {
@@ -13,9 +14,11 @@ macro_rules! impl_atomic {
                 fn to_snapshot(&self) -> Self::Snapshot {
                     self.load(Ordering::Relaxed)
                 }
+            }
 
-                fn eq_snapshot(&self, snapshot: &Self::Snapshot) -> bool {
-                    self.load(Ordering::Relaxed) == *snapshot
+            impl SerializeSnapshot for std::sync::atomic::$ident {
+                fn flush(&self, snapshot: Self::Snapshot) -> Mutations {
+                    self.to_snapshot().flush(snapshot)
                 }
             }
 

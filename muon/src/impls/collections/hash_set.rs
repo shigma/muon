@@ -6,11 +6,14 @@ use std::collections::{HashSet, TryReserveError};
 use std::hash::Hash;
 use std::ops::{Deref, DerefMut};
 
-use crate::Observe;
+use serde::Serialize;
+
+use crate::general::{SerializeSnapshot, Snapshot};
 use crate::helper::macros::{default_impl_ro_observe, delegate_methods};
 use crate::helper::shallow::shallow_observer;
 use crate::helper::{AsDerefMut, QuasiObserver, Unsigned};
 use crate::observe::DefaultSpec;
+use crate::{MutationKind, Mutations, Observe};
 
 shallow_observer! {
     /// Observer implementation for [`HashSet<T>`].
@@ -158,6 +161,57 @@ impl<T> Observe for HashSet<T> {
 
 default_impl_ro_observe! {
     impl [T] RoObserve for HashSet<T>;
+}
+
+impl<T: Serialize + Clone + Eq + Hash> Snapshot for HashSet<T> {
+    type Snapshot = Box<[T]>;
+
+    fn to_snapshot(&self) -> Self::Snapshot {
+        self.iter().cloned().collect()
+    }
+}
+
+struct AppendTail<'a, T> {
+    set: &'a HashSet<T>,
+    skip: usize,
+}
+
+impl<T: Serialize> Serialize for AppendTail<'_, T> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeSeq;
+        let count = self.set.len() - self.skip;
+        let mut seq = serializer.serialize_seq(Some(count))?;
+        for item in self.set.iter().skip(self.skip) {
+            seq.serialize_element(item)?;
+        }
+        seq.end()
+    }
+}
+
+impl<T: Serialize + Clone + Eq + Hash> SerializeSnapshot for HashSet<T> {
+    fn flush(&self, snapshot: Self::Snapshot) -> Mutations {
+        let prefix_len = self.iter().zip(snapshot.iter()).take_while(|(a, b)| *a == *b).count();
+        if prefix_len == self.len() && prefix_len == snapshot.len() {
+            return Mutations::new();
+        }
+        if prefix_len == 0 {
+            return Mutations::replace(self);
+        }
+        let mut mutations = Mutations::new();
+        if snapshot.len() > prefix_len {
+            #[cfg(feature = "truncate")]
+            mutations.extend(MutationKind::Truncate(snapshot.len() - prefix_len));
+            #[cfg(not(feature = "truncate"))]
+            return Mutations::replace(self);
+        }
+        if self.len() > prefix_len {
+            #[cfg(feature = "append")]
+            mutations.extend(Mutations::append_owned(AppendTail { set: self, skip: prefix_len }));
+            #[cfg(not(feature = "append"))]
+            return Mutations::replace(self);
+        }
+        mutations
+    }
 }
 
 #[cfg(test)]

@@ -10,7 +10,7 @@ use std::vec::{Drain, ExtractIf, Splice};
 
 use serde::Serialize;
 
-use crate::general::Snapshot;
+use crate::general::{SerializeSnapshot, Snapshot};
 use crate::helper::macros::{default_impl_ro_observe, delegate_methods};
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
 use crate::impls::slice::{LazyVec, SliceObserver, SliceObserverState, SliceSerializeObserverState};
@@ -604,14 +604,16 @@ default_impl_ro_observe! {
 }
 
 impl<T: Snapshot> Snapshot for Vec<T> {
-    type Snapshot = Vec<T::Snapshot>;
+    type Snapshot = Box<[T::Snapshot]>;
 
     fn to_snapshot(&self) -> Self::Snapshot {
         self.iter().map(|item| item.to_snapshot()).collect()
     }
+}
 
-    fn eq_snapshot(&self, snapshot: &Self::Snapshot) -> bool {
-        self.len() == snapshot.len() && self.iter().zip(snapshot.iter()).all(|(a, b)| a.eq_snapshot(b))
+impl<T: SerializeSnapshot> SerializeSnapshot for Vec<T> {
+    fn flush(&self, snapshot: Self::Snapshot) -> Mutations {
+        self.as_slice().flush(snapshot)
     }
 }
 

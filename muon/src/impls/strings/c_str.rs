@@ -1,9 +1,9 @@
 use std::ffi::CStr;
 
-use crate::Mutations;
 use crate::general::{SerializeSnapshot, Snapshot, Unsize, UnsizeObserver};
 use crate::helper::{AsDeref, AsDerefMut, Unsigned};
-use crate::observe::{DefaultSpec, Observe, RoObserve};
+use crate::observe::{DefaultSpec, RoObserve};
+use crate::{Mutations, Observe};
 
 impl Unsize for CStr {
     type Slice = [u8];

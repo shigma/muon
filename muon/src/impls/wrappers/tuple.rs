@@ -175,7 +175,7 @@ impl<T: Snapshot> Snapshot for (T,) {
 
 #[cfg_attr(docsrs, doc(fake_variadic))]
 #[cfg_attr(docsrs, doc = "This trait is implemented for tuples up to 12 items long.")]
-impl<T: SerializeSnapshot + 'static> SerializeSnapshot for (T,) {
+impl<T: SerializeSnapshot> SerializeSnapshot for (T,) {
     fn flush(&self, snapshot: Self::Snapshot) -> Mutations {
         let mutations = self.0.flush(snapshot.0);
         if mutations.is_replace() {
@@ -404,7 +404,7 @@ macro_rules! tuple_observer {
             }
         }
 
-        impl<$($t: SerializeSnapshot + 'static,)*> SerializeSnapshot for ($($t,)*) {
+        impl<$($t: SerializeSnapshot,)*> SerializeSnapshot for ($($t,)*) {
             fn flush(&self, snapshot: Self::Snapshot) -> Mutations {
                 let mutations_tuple = ($(self.$n.flush(snapshot.$n).with_prefix($n),)*);
                 let capacity = 0 $(+ mutations_tuple.$n.len())*;

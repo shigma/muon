@@ -12,7 +12,7 @@ use std::ops::{Deref, DerefMut, Index, IndexMut};
 
 use serde::Serialize;
 
-use crate::general::Snapshot;
+use crate::general::{SerializeSnapshot, Snapshot};
 use crate::helper::macros::{default_impl_ro_observe, delegate_methods};
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
 use crate::observe::{DefaultSpec, Observer, SerializeObserver};
@@ -593,24 +593,44 @@ default_impl_ro_observe! {
 
 impl<K, V> Snapshot for HashMap<K, V>
 where
-    K: Snapshot,
-    K::Snapshot: Eq + Hash,
+    K: Clone + Eq + Hash,
     V: Snapshot,
 {
-    type Snapshot = HashMap<K::Snapshot, V::Snapshot>;
+    type Snapshot = HashMap<K, V::Snapshot>;
 
     fn to_snapshot(&self) -> Self::Snapshot {
-        self.iter()
-            .map(|(key, value)| (key.to_snapshot(), value.to_snapshot()))
-            .collect()
+        self.iter().map(|(k, v)| (k.clone(), v.to_snapshot())).collect()
     }
+}
 
-    fn eq_snapshot(&self, snapshot: &Self::Snapshot) -> bool {
-        self.len() == snapshot.len()
-            && self
-                .iter()
-                .zip(snapshot.iter())
-                .all(|((key_a, value_a), (key_b, value_b))| key_a.eq_snapshot(key_b) && value_a.eq_snapshot(value_b))
+impl<K, V> SerializeSnapshot for HashMap<K, V>
+where
+    K: Serialize + Clone + Eq + Hash + Into<PathSegment>,
+    V: SerializeSnapshot,
+    Self: Serialize,
+{
+    fn flush(&self, mut snapshot: Self::Snapshot) -> Mutations {
+        let mut mutations = Mutations::new();
+        let mut is_replace = true;
+        for (k, v) in self.iter() {
+            if let Some((k, s)) = snapshot.remove_entry(k) {
+                let mutations_i = v.flush(s);
+                is_replace &= mutations_i.is_replace();
+                mutations.insert(k, mutations_i);
+            } else {
+                mutations.insert(k.clone(), Mutations::replace(v));
+            }
+        }
+        for (k, _) in snapshot {
+            #[cfg(feature = "delete")]
+            mutations.insert(k, Mutations::delete());
+            #[cfg(not(feature = "delete"))]
+            return Mutations::replace(self);
+        }
+        if is_replace && !mutations.is_empty() {
+            return Mutations::replace(self);
+        }
+        mutations
     }
 }
 

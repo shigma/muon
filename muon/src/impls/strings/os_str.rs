@@ -7,12 +7,12 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::windows::ffi::OsStrExt;
 use std::ptr::NonNull;
 
-use crate::Mutations;
 use crate::general::{SerializeSnapshot, Snapshot};
 use crate::helper::macros::delegate_methods;
 use crate::helper::shallow::{ObserverState, SerializeObserverState, shallow_observer};
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, QuasiObserver, Unsigned};
-use crate::observe::{DefaultSpec, Observe, RoObserve};
+use crate::observe::{DefaultSpec, RoObserve};
+use crate::{Mutations, Observe};
 
 #[cfg(unix)]
 pub(super) fn os_str_len(value: &OsStr) -> usize {

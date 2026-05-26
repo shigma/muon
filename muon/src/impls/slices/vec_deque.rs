@@ -12,11 +12,13 @@ use std::ops::{Bound, Deref, DerefMut, Index, IndexMut, Range, RangeBounds};
 use serde::Serialize;
 use serde::ser::SerializeSeq;
 
+use crate::general::{SerializeSnapshot, Snapshot};
 use crate::helper::macros::{default_impl_ro_observe, delegate_methods};
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
 use crate::impls::slices::range_set::RangeSet;
 use crate::observe::{DefaultSpec, Observer, SerializeObserver};
 use crate::{MutationKind, Mutations, Observe, PathSegment};
+
 
 /// Lazily-initialized element observer storage for [`VecDeque`]-backed observers.
 ///
@@ -928,6 +930,46 @@ impl<T: Observe> Observe for VecDeque<T> {
 
 default_impl_ro_observe! {
     impl [T: Observe] RoObserve for VecDeque<T>;
+}
+
+impl<T: Snapshot> Snapshot for VecDeque<T> {
+    type Snapshot = Box<[T::Snapshot]>;
+
+    fn to_snapshot(&self) -> Self::Snapshot {
+        self.iter().map(|item| item.to_snapshot()).collect()
+    }
+}
+
+impl<T: SerializeSnapshot> SerializeSnapshot for VecDeque<T> {
+    fn flush(&self, snapshot: Self::Snapshot) -> Mutations {
+        let mut mutations = Mutations::new();
+        if snapshot.len() > self.len() {
+            #[cfg(feature = "truncate")]
+            mutations.extend(MutationKind::Truncate(snapshot.len() - self.len()));
+            #[cfg(not(feature = "truncate"))]
+            return Mutations::replace(self);
+        }
+        if self.len() > snapshot.len() {
+            #[cfg(feature = "append")]
+            {
+                let tail = AppendTail { deque: self as *const VecDeque<T>, skip: snapshot.len() };
+                mutations.extend(Mutations::append_owned(tail));
+            }
+            #[cfg(not(feature = "append"))]
+            return Mutations::replace(self);
+        }
+
+        let mut is_replace = true;
+        for (i, (v, s)) in self.iter().zip(snapshot).enumerate().rev() {
+            let mutations_i = v.flush(s);
+            is_replace &= mutations_i.is_replace();
+            mutations.insert(PathSegment::Negative(self.len() - i), mutations_i);
+        }
+        if is_replace && !mutations.is_empty() {
+            return Mutations::replace(self);
+        }
+        mutations
+    }
 }
 
 #[cfg(test)]

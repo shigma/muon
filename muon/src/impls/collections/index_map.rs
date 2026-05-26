@@ -13,7 +13,7 @@ use indexmap::map::Entry;
 use indexmap::{Equivalent, IndexMap, TryReserveError};
 use serde::Serialize;
 
-use crate::general::Snapshot;
+use crate::general::{SerializeSnapshot, Snapshot};
 use crate::helper::macros::{default_impl_ro_observe, delegate_methods};
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
 use crate::observe::{DefaultSpec, Observer, SerializeObserver};
@@ -936,24 +936,70 @@ default_impl_ro_observe! {
 
 impl<K, V> Snapshot for IndexMap<K, V>
 where
-    K: Snapshot,
-    K::Snapshot: Eq + Hash,
+    K: Clone + Eq + Hash,
     V: Snapshot,
 {
-    type Snapshot = IndexMap<K::Snapshot, V::Snapshot>;
+    type Snapshot = Box<[(K, V::Snapshot)]>;
 
     fn to_snapshot(&self) -> Self::Snapshot {
-        self.iter()
-            .map(|(key, value)| (key.to_snapshot(), value.to_snapshot()))
-            .collect()
+        self.iter().map(|(k, v)| (k.clone(), v.to_snapshot())).collect()
     }
+}
 
-    fn eq_snapshot(&self, snapshot: &Self::Snapshot) -> bool {
-        self.len() == snapshot.len()
-            && self
-                .iter()
-                .zip(snapshot.iter())
-                .all(|((key_a, value_a), (key_b, value_b))| key_a.eq_snapshot(key_b) && value_a.eq_snapshot(value_b))
+struct AppendTail<'a, K, V> {
+    map: &'a IndexMap<K, V>,
+    skip: usize,
+}
+
+impl<K: Serialize, V: Serialize> Serialize for AppendTail<'_, K, V> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        let count = self.map.len() - self.skip;
+        let mut map = serializer.serialize_map(Some(count))?;
+        for (k, v) in self.map.iter().skip(self.skip) {
+            map.serialize_entry(k, v)?;
+        }
+        map.end()
+    }
+}
+
+impl<K, V> SerializeSnapshot for IndexMap<K, V>
+where
+    K: Serialize + Clone + Eq + Hash + Into<PathSegment>,
+    V: SerializeSnapshot,
+    Self: Serialize,
+{
+    fn flush(&self, snapshot: Self::Snapshot) -> Mutations {
+        let prefix_len = self
+            .keys()
+            .zip(snapshot.iter().map(|(k, _)| k))
+            .take_while(|(a, b)| *a == *b)
+            .count();
+
+        let mut mutations = Mutations::new();
+        if snapshot.len() > prefix_len {
+            #[cfg(feature = "truncate")]
+            mutations.extend(MutationKind::Truncate(snapshot.len() - prefix_len));
+            #[cfg(not(feature = "truncate"))]
+            return Mutations::replace(self);
+        }
+        if self.len() > prefix_len {
+            #[cfg(feature = "append")]
+            mutations.extend(Mutations::append_owned(AppendTail { map: self, skip: prefix_len }));
+            #[cfg(not(feature = "append"))]
+            return Mutations::replace(self);
+        }
+
+        let mut is_replace = true;
+        for ((k, v), (_, s)) in self.iter().zip(snapshot).take(prefix_len).rev() {
+            let mutations_i = v.flush(s);
+            is_replace &= mutations_i.is_replace();
+            mutations.insert(k.clone(), mutations_i);
+        }
+        if is_replace && !mutations.is_empty() {
+            return Mutations::replace(self);
+        }
+        mutations
     }
 }
 
@@ -1489,5 +1535,71 @@ mod tests {
             mutation,
             Some(batch!(_, replace!(c, json!(30)), delete!(a), delete!(b)))
         );
+    }
+}
+
+#[cfg(test)]
+mod snapshot_tests {
+    use indexmap::IndexMap;
+    use muon_test_utils::*;
+    use serde_json::json;
+
+    use crate::adapter::{Adapter, Json};
+    use crate::general::{SerializeSnapshot, Snapshot};
+
+    #[test]
+    fn no_change() {
+        let map = IndexMap::from([("a", 1), ("b", 2)]);
+        let snapshot = map.to_snapshot();
+        let mutations = map.flush(snapshot);
+        assert!(mutations.is_empty());
+    }
+
+    #[test]
+    fn value_changed() {
+        let map = IndexMap::from([("a", 1), ("b", 99), ("c", 3)]);
+        let snapshot = IndexMap::from([("a", 1), ("b", 2), ("c", 3)]).to_snapshot();
+        let Json(mutation) = Json::from_mutations(map.flush(snapshot)).unwrap();
+        assert_eq!(mutation, Some(replace!(b, json!(99))));
+    }
+
+    #[test]
+    fn all_values_changed() {
+        let map = IndexMap::from([("a", 10), ("b", 20)]);
+        let snapshot = IndexMap::from([("a", 1), ("b", 2)]).to_snapshot();
+        let Json(mutation) = Json::from_mutations(map.flush(snapshot)).unwrap();
+        assert_eq!(mutation, Some(replace!(_, json!({"a": 10, "b": 20}))));
+    }
+
+    #[test]
+    fn append_entries() {
+        let map = IndexMap::from([("a", 1), ("b", 2), ("c", 3)]);
+        let snapshot = IndexMap::from([("a", 1)]).to_snapshot();
+        let Json(mutation) = Json::from_mutations(map.flush(snapshot)).unwrap();
+        assert_eq!(mutation, Some(append!(_, json!({"b": 2, "c": 3}))));
+    }
+
+    #[test]
+    fn truncate_entries() {
+        let map = IndexMap::from([("a", 1)]);
+        let snapshot = IndexMap::from([("a", 1), ("b", 2), ("c", 3)]).to_snapshot();
+        let Json(mutation) = Json::from_mutations(map.flush(snapshot)).unwrap();
+        assert_eq!(mutation, Some(truncate!(_, 2)));
+    }
+
+    #[test]
+    fn keys_diverge() {
+        let map = IndexMap::from([("a", 1), ("x", 10), ("y", 20)]);
+        let snapshot = IndexMap::from([("a", 1), ("b", 2), ("c", 3), ("d", 4)]).to_snapshot();
+        let Json(mutation) = Json::from_mutations(map.flush(snapshot)).unwrap();
+        assert_eq!(mutation, Some(batch!(_, truncate!(_, 3), append!(_, json!({"x": 10, "y": 20})))));
+    }
+
+    #[test]
+    fn append_with_value_change() {
+        let map = IndexMap::from([("a", 99), ("b", 2), ("c", 3)]);
+        let snapshot = IndexMap::from([("a", 1), ("b", 2)]).to_snapshot();
+        let Json(mutation) = Json::from_mutations(map.flush(snapshot)).unwrap();
+        assert_eq!(mutation, Some(batch!(_, append!(_, json!({"c": 3})), replace!(a, json!(99)))));
     }
 }

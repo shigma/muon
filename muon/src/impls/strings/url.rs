@@ -5,13 +5,13 @@ use std::net::IpAddr;
 
 use url::{ParseError, Url};
 
-use crate::Mutations;
 use crate::general::{SerializeSnapshot, Snapshot};
 use crate::helper::macros::default_impl_ro_observe;
 use crate::helper::shallow::shallow_observer;
 use crate::helper::{AsDeref, AsDerefMut, QuasiObserver, Unsigned};
 use crate::impls::strings::string::StringObserverState;
-use crate::observe::{DefaultSpec, Observe};
+use crate::observe::DefaultSpec;
+use crate::{Mutations, Observe};
 
 shallow_observer! {
     /// Observer implementation for [`Url`].

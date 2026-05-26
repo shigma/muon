@@ -175,7 +175,7 @@ macro_rules! impl_range {
                 }
             }
 
-            impl<T: SerializeSnapshot + 'static> SerializeSnapshot for $ty<T> {
+            impl<T: SerializeSnapshot> SerializeSnapshot for $ty<T> {
                 fn flush(&self, snapshot: Self::Snapshot) -> Mutations {
                     $(let $field = self.$field.flush(snapshot.$field).with_prefix(stringify!($field));)*
                     if $($field.is_replace())&&* {
@@ -372,7 +372,7 @@ impl<T: Snapshot> Snapshot for RangeInclusive<T> {
     }
 }
 
-impl<T: SerializeSnapshot + 'static> SerializeSnapshot for RangeInclusive<T> {
+impl<T: SerializeSnapshot> SerializeSnapshot for RangeInclusive<T> {
     fn flush(&self, snapshot: Self::Snapshot) -> Mutations {
         let start = self.start().flush(snapshot.0).with_prefix("start");
         let end = self.end().flush(snapshot.1).with_prefix("end");

@@ -272,7 +272,7 @@ impl<T: Snapshot> Snapshot for Option<T> {
     }
 }
 
-impl<T: SerializeSnapshot + 'static> SerializeSnapshot for Option<T> {
+impl<T: SerializeSnapshot> SerializeSnapshot for Option<T> {
     fn flush(&self, snapshot: Self::Snapshot) -> Mutations {
         match (self, snapshot) {
             (Some(v), Some(s)) => v.flush(s),

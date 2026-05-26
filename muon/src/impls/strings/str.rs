@@ -11,8 +11,8 @@ use crate::helper::shallow::{ShallowDelegate, ShallowMut, shallow_observer};
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Unsigned, Zero};
 use crate::impls::strings::TruncateLen;
 use crate::impls::strings::string::StringObserverState;
-use crate::observe::{DefaultSpec, Observe, RoObserve};
-use crate::{MutationKind, Mutations};
+use crate::observe::{DefaultSpec, RoObserve};
+use crate::{MutationKind, Mutations, Observe};
 
 shallow_observer! {
     /// Observer implementation for [`str`].

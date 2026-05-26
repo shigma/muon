@@ -9,12 +9,12 @@ use std::ops::RangeBounds;
 
 use serde::Serialize;
 
-use crate::general::Snapshot;
+use crate::general::{SerializeSnapshot, Snapshot};
 use crate::helper::macros::{default_impl_ro_observe, delegate_methods};
 use crate::helper::shallow::{ObserverState, SerializeObserverState, shallow_observer};
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Unsigned};
 use crate::observe::DefaultSpec;
-use crate::{Mutations, Observe};
+use crate::{MutationKind, Mutations, Observe};
 
 shallow_observer! {
     /// Observer implementation for [`BTreeSet<T>`].
@@ -338,19 +338,54 @@ impl<T: Clone + Ord> Observe for BTreeSet<T> {
     type Spec = DefaultSpec;
 }
 
-impl<T> Snapshot for BTreeSet<T>
-where
-    T: Snapshot,
-    T::Snapshot: Ord,
-{
-    type Snapshot = BTreeSet<T::Snapshot>;
+impl<T: Serialize + Clone + Ord> Snapshot for BTreeSet<T> {
+    type Snapshot = Box<[T]>;
 
     fn to_snapshot(&self) -> Self::Snapshot {
-        self.iter().map(|item| item.to_snapshot()).collect()
+        self.iter().cloned().collect()
     }
+}
 
-    fn eq_snapshot(&self, snapshot: &Self::Snapshot) -> bool {
-        self.len() == snapshot.len() && self.iter().zip(snapshot.iter()).all(|(a, b)| a.eq_snapshot(b))
+struct AppendTail<'a, T> {
+    set: &'a BTreeSet<T>,
+    skip: usize,
+}
+
+impl<T: Serialize> Serialize for AppendTail<'_, T> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeSeq;
+        let count = self.set.len() - self.skip;
+        let mut seq = serializer.serialize_seq(Some(count))?;
+        for item in self.set.iter().skip(self.skip) {
+            seq.serialize_element(item)?;
+        }
+        seq.end()
+    }
+}
+
+impl<T: Serialize + Clone + Ord> SerializeSnapshot for BTreeSet<T> {
+    fn flush(&self, snapshot: Self::Snapshot) -> Mutations {
+        let prefix_len = self.iter().zip(snapshot.iter()).take_while(|(a, b)| *a == *b).count();
+        if prefix_len == self.len() && prefix_len == snapshot.len() {
+            return Mutations::new();
+        }
+        if prefix_len == 0 {
+            return Mutations::replace(self);
+        }
+        let mut mutations = Mutations::new();
+        if snapshot.len() > prefix_len {
+            #[cfg(feature = "truncate")]
+            mutations.extend(MutationKind::Truncate(snapshot.len() - prefix_len));
+            #[cfg(not(feature = "truncate"))]
+            return Mutations::replace(self);
+        }
+        if self.len() > prefix_len {
+            #[cfg(feature = "append")]
+            mutations.extend(Mutations::append_owned(AppendTail { set: self, skip: prefix_len }));
+            #[cfg(not(feature = "append"))]
+            return Mutations::replace(self);
+        }
+        mutations
     }
 }
 
@@ -498,5 +533,71 @@ mod tests {
         drop(iter);
         let Json(mutation) = ob.flush().unwrap();
         assert_eq!(mutation, Some(batch!(_, truncate!(_, 4), append!(_, json!([3, 4, 5])))));
+    }
+}
+
+#[cfg(test)]
+mod snapshot_tests {
+    use std::collections::BTreeSet;
+
+    use muon_test_utils::*;
+    use serde_json::json;
+
+    use crate::adapter::{Adapter, Json};
+    use crate::general::{SerializeSnapshot, Snapshot};
+
+    #[test]
+    fn no_change() {
+        let set = BTreeSet::from([1, 2, 3]);
+        let snapshot = set.to_snapshot();
+        assert!(set.flush(snapshot).is_empty());
+    }
+
+    #[test]
+    fn append_elements() {
+        let set = BTreeSet::from([1, 2, 3, 4, 5]);
+        let snapshot = BTreeSet::from([1, 2, 3]).to_snapshot();
+        let Json(m) = Json::from_mutations(set.flush(snapshot)).unwrap();
+        assert_eq!(m, Some(append!(_, json!([4, 5]))));
+    }
+
+    #[test]
+    fn truncate_elements() {
+        let set = BTreeSet::from([1, 2]);
+        let snapshot = BTreeSet::from([1, 2, 3, 4]).to_snapshot();
+        let Json(m) = Json::from_mutations(set.flush(snapshot)).unwrap();
+        assert_eq!(m, Some(truncate!(_, 2)));
+    }
+
+    #[test]
+    fn diverge_in_middle() {
+        let set = BTreeSet::from([1, 2, 10, 11]);
+        let snapshot = BTreeSet::from([1, 2, 3, 4, 5]).to_snapshot();
+        let Json(m) = Json::from_mutations(set.flush(snapshot)).unwrap();
+        assert_eq!(m, Some(batch!(_, truncate!(_, 3), append!(_, json!([10, 11])))));
+    }
+
+    #[test]
+    fn all_different() {
+        let set = BTreeSet::from([10, 20, 30]);
+        let snapshot = BTreeSet::from([1, 2, 3]).to_snapshot();
+        let Json(m) = Json::from_mutations(set.flush(snapshot)).unwrap();
+        assert_eq!(m, Some(replace!(_, json!([10, 20, 30]))));
+    }
+
+    #[test]
+    fn empty_to_nonempty() {
+        let set = BTreeSet::from([1, 2, 3]);
+        let snapshot = BTreeSet::<i32>::new().to_snapshot();
+        let Json(m) = Json::from_mutations(set.flush(snapshot)).unwrap();
+        assert_eq!(m, Some(replace!(_, json!([1, 2, 3]))));
+    }
+
+    #[test]
+    fn nonempty_to_empty() {
+        let set = BTreeSet::<i32>::new();
+        let snapshot = BTreeSet::from([1, 2, 3]).to_snapshot();
+        let Json(m) = Json::from_mutations(set.flush(snapshot)).unwrap();
+        assert_eq!(m, Some(replace!(_, json!([]))));
     }
 }

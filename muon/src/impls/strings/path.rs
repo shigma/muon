@@ -5,13 +5,13 @@ use std::marker::PhantomData;
 use std::path::Path;
 use std::ptr::NonNull;
 
-use crate::Mutations;
 use crate::general::{SerializeSnapshot, Snapshot};
 use crate::helper::shallow::{ObserverState, SerializeObserverState, ShallowDelegate, shallow_observer};
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, Unsigned, Zero};
 use crate::impls::strings::TruncateLen;
 use crate::impls::strings::os_str::OsStrObserver;
-use crate::observe::{DefaultSpec, Observe, RoObserve};
+use crate::observe::{DefaultSpec, RoObserve};
+use crate::{Mutations, Observe};
 
 shallow_observer! {
     /// Observer implementation for [`Path`].

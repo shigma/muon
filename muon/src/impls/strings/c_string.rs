@@ -1,10 +1,10 @@
 use std::ffi::CString;
 
-use crate::Mutations;
 use crate::general::{SerializeSnapshot, Snapshot, UnsizeObserver};
 use crate::helper::{AsDeref, AsDerefMut, Succ, Unsigned};
 use crate::impls::DerefObserver;
-use crate::observe::{DefaultSpec, Observe, RoObserve};
+use crate::observe::{DefaultSpec, RoObserve};
+use crate::{Mutations, Observe};
 
 impl Observe for CString {
     type Observer<'ob, S, D>

@@ -167,19 +167,9 @@ impl<T: Snapshot + ?Sized> Snapshot for std::rc::Weak<T> {
     }
 }
 
-impl<T: SerializeSnapshot + ?Sized + 'static> SerializeSnapshot for std::rc::Weak<T> {
+impl<T: SerializeSnapshot + ?Sized> SerializeSnapshot for std::rc::Weak<T> {
     fn flush(&self, snapshot: Self::Snapshot) -> Mutations {
-        match (self.upgrade(), snapshot) {
-            (Some(v), Some(s)) => {
-                if !(*v).flush(s).is_empty() {
-                    Mutations::replace(&Some(SerializeRef(&*v)))
-                } else {
-                    Mutations::new()
-                }
-            }
-            (None, None) => Mutations::new(),
-            (rc, _) => Mutations::replace(&rc.as_deref().map(|v| SerializeRef(v))),
-        }
+        self.upgrade().flush(snapshot)
     }
 }
 
@@ -191,18 +181,8 @@ impl<T: Snapshot + ?Sized> Snapshot for std::sync::Weak<T> {
     }
 }
 
-impl<T: SerializeSnapshot + ?Sized + 'static> SerializeSnapshot for std::sync::Weak<T> {
+impl<T: SerializeSnapshot + ?Sized> SerializeSnapshot for std::sync::Weak<T> {
     fn flush(&self, snapshot: Self::Snapshot) -> Mutations {
-        match (self.upgrade(), snapshot) {
-            (Some(v), Some(s)) => {
-                if !(*v).flush(s).is_empty() {
-                    Mutations::replace(&Some(SerializeRef(&*v)))
-                } else {
-                    Mutations::new()
-                }
-            }
-            (None, None) => Mutations::new(),
-            (rc, _) => Mutations::replace(&rc.as_deref().map(|v| SerializeRef(v))),
-        }
+        self.upgrade().flush(snapshot)
     }
 }

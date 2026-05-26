@@ -17,5 +17,5 @@ pub use noop::NoopObserver;
 pub use observer::{DebugHandler, GeneralHandler, GeneralObserver, ReplaceHandler, SerializeHandler};
 pub use pointer::PointerObserver;
 pub use shallow::ShallowObserver;
-pub use snapshot::{Snapshot, SnapshotObserver};
+pub use snapshot::{SerializeSnapshot, Snapshot, SnapshotObserver};
 pub(crate) use unsize::{Unsize, UnsizeObserver};

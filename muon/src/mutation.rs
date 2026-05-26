@@ -470,8 +470,17 @@ impl Mutations {
     ///
     /// Unlike [`replace`](Self::replace), which accepts `&T` (including unsized types) and wraps it
     /// in [`SerializeRef`], this method takes `T` by value and boxes it directly.
-    pub fn replace_owned<T: serde::Serialize + 'static>(value: T) -> Self {
-        MutationKind::Replace(Box::new(value) as Box<dyn Serialize>).into()
+    ///
+    /// ## Safety (internal)
+    ///
+    /// Uses `transmute` to erase lifetime from the boxed trait object. This is sound
+    /// because the pointed-to value's validity is guaranteed by the observer's `'ob` lifetime —
+    /// serialization always completes before the observed data is dropped.
+    pub fn replace_owned<T: serde::Serialize>(value: T) -> Self {
+        let boxed = unsafe {
+            std::mem::transmute::<Box<dyn Serialize + '_>, Box<dyn Serialize>>(Box::new(value))
+        };
+        MutationKind::Replace(boxed).into()
     }
 
     /// Creates a [`Mutations`] containing a single [`Replace`](MutationKind::Replace) mutation
@@ -479,18 +488,14 @@ impl Mutations {
     ///
     /// The value is wrapped in a [`Box<dyn Serialize>`](erased_serde::Serialize) via
     /// [`SerializeRef`], allowing unsized types like `str` and `[T]` to be used.
-    pub fn replace<T: serde::Serialize + ?Sized + 'static>(value: &T) -> Self {
-        Self::replace_owned(SerializeRef(value))
-    }
-
-    /// Creates a [`Mutations`] containing a single [`Append`](MutationKind::Append) mutation,
-    /// taking ownership of the value.
     ///
-    /// Unlike [`append`](Self::append), which accepts `&T` (including unsized types) and wraps it
-    /// in [`SerializeRef`], this method takes `T` by value and boxes it directly.
-    #[cfg(feature = "append")]
-    pub fn append_owned<T: serde::Serialize + 'static>(value: T) -> Self {
-        MutationKind::Append(Box::new(value) as Box<dyn Serialize>).into()
+    /// ## Safety (internal)
+    ///
+    /// Uses [`SerializeRef`] to store a raw pointer for deferred serialization.
+    /// The pointed-to value's validity is guaranteed by the observer's `'ob` lifetime —
+    /// serialization always completes before the observed data is dropped.
+    pub fn replace<T: serde::Serialize + ?Sized>(value: &T) -> Self {
+        Self::replace_owned(SerializeRef(value))
     }
 
     /// Creates a [`Mutations`] containing a single [`Append`](MutationKind::Append) mutation
@@ -498,8 +503,33 @@ impl Mutations {
     ///
     /// The value is wrapped in a [`Box<dyn Serialize>`](erased_serde::Serialize) via
     /// [`SerializeRef`], allowing unsized types like `str` and `[T]` to be used.
+    ///
+    /// ## Safety (internal)
+    ///
+    /// Uses [`SerializeRef`] to store a raw pointer for deferred serialization.
+    /// The pointed-to value's validity is guaranteed by the observer's `'ob` lifetime —
+    /// serialization always completes before the observed data is dropped.
     #[cfg(feature = "append")]
-    pub fn append<T: serde::Serialize + ?Sized + 'static>(value: &T) -> Self {
+    pub fn append<T: serde::Serialize + ?Sized>(value: &T) -> Self {
         Self::append_owned(SerializeRef(value))
+    }
+
+    /// Creates a [`Mutations`] containing a single [`Append`](MutationKind::Append) mutation,
+    /// taking ownership of the value.
+    ///
+    /// Unlike [`append`](Self::append), which accepts `&T` (including unsized types) and wraps it
+    /// in [`SerializeRef`], this method takes `T` by value and boxes it directly.
+    ///
+    /// ## Safety (internal)
+    ///
+    /// Uses `transmute` to erase lifetime from the boxed trait object. This is sound
+    /// because the pointed-to value's validity is guaranteed by the observer's `'ob` lifetime —
+    /// serialization always completes before the observed data is dropped.
+    #[cfg(feature = "append")]
+    pub fn append_owned<T: serde::Serialize>(value: T) -> Self {
+        let boxed = unsafe {
+            std::mem::transmute::<Box<dyn Serialize + '_>, Box<dyn Serialize>>(Box::new(value))
+        };
+        MutationKind::Append(boxed).into()
     }
 }

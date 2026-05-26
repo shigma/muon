@@ -223,7 +223,7 @@ impl<T: Snapshot> Snapshot for Bound<T> {
     }
 }
 
-impl<T: SerializeSnapshot + 'static> SerializeSnapshot for Bound<T> {
+impl<T: SerializeSnapshot> SerializeSnapshot for Bound<T> {
     fn flush(&self, snapshot: Self::Snapshot) -> Mutations {
         match (self, snapshot) {
             (Bound::Included(v), Bound::Included(s)) => v.flush(s).with_prefix("Included"),

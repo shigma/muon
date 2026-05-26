@@ -11,7 +11,7 @@ use std::ops::{Deref, DerefMut, Index, IndexMut, RangeBounds};
 
 use serde::Serialize;
 
-use crate::general::Snapshot;
+use crate::general::{SerializeSnapshot, Snapshot};
 use crate::helper::macros::default_impl_ro_observe;
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
 use crate::observe::{DefaultSpec, Observer, SerializeObserver};
@@ -670,24 +670,44 @@ default_impl_ro_observe! {
 
 impl<K, V> Snapshot for BTreeMap<K, V>
 where
-    K: Snapshot,
-    K::Snapshot: Ord,
+    K: Clone + Ord,
     V: Snapshot,
 {
-    type Snapshot = BTreeMap<K::Snapshot, V::Snapshot>;
+    type Snapshot = BTreeMap<K, V::Snapshot>;
 
     fn to_snapshot(&self) -> Self::Snapshot {
-        self.iter()
-            .map(|(key, value)| (key.to_snapshot(), value.to_snapshot()))
-            .collect()
+        self.iter().map(|(k, v)| (k.clone(), v.to_snapshot())).collect()
     }
+}
 
-    fn eq_snapshot(&self, snapshot: &Self::Snapshot) -> bool {
-        self.len() == snapshot.len()
-            && self
-                .iter()
-                .zip(snapshot.iter())
-                .all(|((key_a, value_a), (key_b, value_b))| key_a.eq_snapshot(key_b) && value_a.eq_snapshot(value_b))
+impl<K, V> SerializeSnapshot for BTreeMap<K, V>
+where
+    K: Serialize + Clone + Ord + Into<PathSegment>,
+    V: SerializeSnapshot,
+    Self: Serialize,
+{
+    fn flush(&self, mut snapshot: Self::Snapshot) -> Mutations {
+        let mut mutations = Mutations::new();
+        let mut is_replace = true;
+        for (k, v) in self.iter() {
+            if let Some((k, s)) = snapshot.remove_entry(k) {
+                let mutations_i = v.flush(s);
+                is_replace &= mutations_i.is_replace();
+                mutations.insert(k, mutations_i);
+            } else {
+                mutations.insert(k.clone(), Mutations::replace(v));
+            }
+        }
+        for (k, _) in snapshot {
+            #[cfg(feature = "delete")]
+            mutations.insert(k, Mutations::delete());
+            #[cfg(not(feature = "delete"))]
+            return Mutations::replace(self);
+        }
+        if is_replace && !mutations.is_empty() {
+            return Mutations::replace(self);
+        }
+        mutations
     }
 }
 
@@ -1071,5 +1091,123 @@ mod tests {
             mutation,
             Some(batch!(_, replace!(c, json!(30)), delete!(a), delete!(b)))
         );
+    }
+}
+
+#[cfg(test)]
+mod snapshot_tests {
+    use std::collections::BTreeMap;
+
+    use muon_test_utils::*;
+    use serde_json::json;
+
+    use crate::adapter::{Adapter, Json};
+    use crate::general::{SerializeSnapshot, Snapshot};
+
+    #[test]
+    fn no_change() {
+        let map = BTreeMap::from([("a", 1), ("b", 2), ("c", 3)]);
+        let snapshot = map.to_snapshot();
+        assert!(map.flush(snapshot).is_empty());
+    }
+
+    #[test]
+    fn value_changed() {
+        let map = BTreeMap::from([("a", 1), ("b", 99), ("c", 3)]);
+        let snapshot = BTreeMap::from([("a", 1), ("b", 2), ("c", 3)]).to_snapshot();
+        let Json(m) = Json::from_mutations(map.flush(snapshot)).unwrap();
+        assert_eq!(m, Some(replace!(b, json!(99))));
+    }
+
+    #[test]
+    fn all_values_changed() {
+        let map = BTreeMap::from([("a", 10), ("b", 20), ("c", 30)]);
+        let snapshot = BTreeMap::from([("a", 1), ("b", 2), ("c", 3)]).to_snapshot();
+        let Json(m) = Json::from_mutations(map.flush(snapshot)).unwrap();
+        assert_eq!(m, Some(replace!(_, json!({"a": 10, "b": 20, "c": 30}))));
+    }
+
+    #[test]
+    fn key_inserted() {
+        let map = BTreeMap::from([("a", 1), ("b", 2), ("c", 3)]);
+        let snapshot = BTreeMap::from([("a", 1), ("c", 3)]).to_snapshot();
+        let Json(m) = Json::from_mutations(map.flush(snapshot)).unwrap();
+        assert_eq!(m, Some(replace!(b, json!(2))));
+    }
+
+    #[test]
+    fn key_deleted() {
+        let map = BTreeMap::from([("a", 1), ("c", 3)]);
+        let snapshot = BTreeMap::from([("a", 1), ("b", 2), ("c", 3)]).to_snapshot();
+        let Json(m) = Json::from_mutations(map.flush(snapshot)).unwrap();
+        assert_eq!(m, Some(delete!(b)));
+    }
+
+    #[test]
+    fn insert_and_delete() {
+        let map = BTreeMap::from([("a", 1), ("d", 4)]);
+        let snapshot = BTreeMap::from([("a", 1), ("b", 2), ("c", 3)]).to_snapshot();
+        let Json(m) = Json::from_mutations(map.flush(snapshot)).unwrap();
+        assert_eq!(m, Some(batch!(_, replace!(d, json!(4)), delete!(b), delete!(c))));
+    }
+
+    #[test]
+    fn value_change_with_insert() {
+        let map = BTreeMap::from([("a", 10), ("b", 2), ("c", 3)]);
+        let snapshot = BTreeMap::from([("a", 1), ("b", 2)]).to_snapshot();
+        let Json(m) = Json::from_mutations(map.flush(snapshot)).unwrap();
+        assert_eq!(m, Some(batch!(_, replace!(a, json!(10)), replace!(c, json!(3)))));
+    }
+
+    #[test]
+    fn value_change_with_delete() {
+        let map = BTreeMap::from([("a", 10)]);
+        let snapshot = BTreeMap::from([("a", 1), ("b", 2)]).to_snapshot();
+        let Json(m) = Json::from_mutations(map.flush(snapshot)).unwrap();
+        assert_eq!(m, Some(replace!(_, json!({"a": 10}))));
+    }
+
+    #[test]
+    fn all_replaced_with_insert_collapses() {
+        let map = BTreeMap::from([("a", 10), ("b", 20), ("c", 30)]);
+        let snapshot = BTreeMap::from([("a", 1), ("b", 2)]).to_snapshot();
+        let Json(m) = Json::from_mutations(map.flush(snapshot)).unwrap();
+        // a and b both replaced (is_replace stays true), c is new (doesn't affect is_replace)
+        // → collapses to whole-map Replace
+        assert_eq!(m, Some(replace!(_, json!({"a": 10, "b": 20, "c": 30}))));
+    }
+
+    #[test]
+    fn all_same_keys_replaced_collapses() {
+        let map = BTreeMap::from([("a", 10), ("b", 20)]);
+        let snapshot = BTreeMap::from([("a", 1), ("b", 2)]).to_snapshot();
+        let Json(m) = Json::from_mutations(map.flush(snapshot)).unwrap();
+        assert_eq!(m, Some(replace!(_, json!({"a": 10, "b": 20}))));
+    }
+
+    #[test]
+    fn empty_to_nonempty() {
+        let map = BTreeMap::from([("a", 1), ("b", 2)]);
+        let snapshot = BTreeMap::<&str, i32>::new().to_snapshot();
+        let Json(m) = Json::from_mutations(map.flush(snapshot)).unwrap();
+        // All new keys, no equal keys → is_replace stays true → collapses
+        assert_eq!(m, Some(replace!(_, json!({"a": 1, "b": 2}))));
+    }
+
+    #[test]
+    fn nonempty_to_empty() {
+        let map = BTreeMap::<&str, i32>::new();
+        let snapshot = BTreeMap::from([("a", 1), ("b", 2)]).to_snapshot();
+        let Json(m) = Json::from_mutations(map.flush(snapshot)).unwrap();
+        // All deleted, no equal keys → is_replace stays true → collapses
+        assert_eq!(m, Some(replace!(_, json!({}))));
+    }
+
+    #[test]
+    fn granular_inner_mutation() {
+        let map = BTreeMap::from([("a", "hello!".to_string()), ("b", "world".to_string())]);
+        let snapshot = BTreeMap::from([("a", "hello".to_string()), ("b", "world".to_string())]).to_snapshot();
+        let Json(m) = Json::from_mutations(map.flush(snapshot)).unwrap();
+        assert_eq!(m, Some(append!(a, json!("!"))));
     }
 }

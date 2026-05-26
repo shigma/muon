@@ -5,7 +5,7 @@ use std::ops::{Deref, DerefMut, Index, IndexMut};
 
 use serde::Serialize;
 
-use crate::general::Snapshot;
+use crate::general::{SerializeSnapshot, Snapshot};
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
 use crate::impls::slice::{SliceObserver, SliceObserverState, SliceSerializeObserverState};
 use crate::impls::slices::helper::SliceIndexImpl;
@@ -273,9 +273,18 @@ impl<T: Snapshot, const N: usize> Snapshot for [T; N] {
     fn to_snapshot(&self) -> Self::Snapshot {
         std::array::from_fn(|i| self[i].to_snapshot())
     }
+}
 
-    fn eq_snapshot(&self, snapshot: &Self::Snapshot) -> bool {
-        (0..N).all(|i| self[i].eq_snapshot(&snapshot[i]))
+impl<T: SerializeSnapshot, const N: usize> SerializeSnapshot for [T; N]
+where
+    Self: Serialize,
+{
+    fn flush(&self, snapshot: [T::Snapshot; N]) -> Mutations {
+        if self.iter().zip(snapshot).any(|(v, s)| !v.flush(s).is_empty()) {
+            Mutations::replace(self.as_slice())
+        } else {
+            Mutations::new()
+        }
     }
 }
 

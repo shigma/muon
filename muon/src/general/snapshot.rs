@@ -1,11 +1,10 @@
 use std::marker::PhantomData;
-use std::mem::MaybeUninit;
 use std::num::NonZero;
 
-use crate::Observe;
-use crate::general::{DebugHandler, GeneralHandler, GeneralObserver, ReplaceHandler};
+use crate::general::{DebugHandler, GeneralHandler, GeneralObserver, SerializeHandler};
 use crate::helper::{AsDeref, AsDerefMut, Invalidate, Unsigned, Zero};
-use crate::observe::{RoObserve, RwObserve};
+use crate::observe::RoObserve;
+use crate::{Mutations, Observe};
 
 /// A general observer that uses snapshot comparison to detect actual value changes.
 ///
@@ -55,11 +54,11 @@ use crate::observe::{RoObserve, RwObserve};
 /// [`SystemTime`](std::time::SystemTime)).
 pub type SnapshotObserver<'ob, S, D = Zero> = GeneralObserver<'ob, SnapshotHandler<<S as AsDeref<D>>::Target>, S, D>;
 
-/// A trait for creating and comparing snapshots of observable values.
+/// A trait for creating snapshots of observable values.
 ///
-/// [`Snapshot`] is used by [`SnapshotObserver`](crate::general::SnapshotObserver) to detect changes
-/// by comparing values before and after observation. It is similar to [`Clone`] + [`PartialEq`],
-/// but emphasizes serialization consistency rather than semantic equality.
+/// [`Snapshot`] is used by [`SnapshotObserver`](crate::general::SnapshotObserver) to capture the
+/// initial state of a value. The companion trait [`SerializeSnapshot`] handles comparison and
+/// mutation production during flush.
 ///
 /// ## Deep Copy Semantics
 ///
@@ -79,16 +78,21 @@ pub trait Snapshot {
     ///
     /// For pointer types, this performs a deep copy of the underlying value.
     fn to_snapshot(&self) -> Self::Snapshot;
+}
 
-    /// Compares the current value against a previously captured snapshot.
-    ///
-    /// Returns `true` if the current value would serialize to the same output as the snapshot,
-    /// `false` otherwise.
-    fn eq_snapshot(&self, snapshot: &Self::Snapshot) -> bool;
+/// Extends [`Snapshot`] with the ability to flush recorded mutations by comparing against
+/// a stored snapshot.
+///
+/// The `flush` method compares the current value against the old snapshot and produces
+/// [`Mutations`]. The snapshot has already been updated (re-observed) before `flush` is called;
+/// `flush` only needs to compare and return mutations.
+pub trait SerializeSnapshot: Snapshot + serde::Serialize {
+    /// Compares the current value against the old snapshot and produces mutations.
+    fn flush(&self, snapshot: Self::Snapshot) -> Mutations;
 }
 
 pub struct SnapshotHandler<T: Snapshot + ?Sized> {
-    snapshot: MaybeUninit<T::Snapshot>,
+    snapshot: T::Snapshot,
     phantom: PhantomData<T>,
 }
 
@@ -101,16 +105,15 @@ impl<T: Snapshot + ?Sized> GeneralHandler for SnapshotHandler<T> {
 
     fn observe(value: &T) -> Self {
         Self {
-            snapshot: MaybeUninit::new(value.to_snapshot()),
+            snapshot: value.to_snapshot(),
             phantom: PhantomData,
         }
     }
 }
 
-impl<T: Snapshot + ?Sized> ReplaceHandler for SnapshotHandler<T> {
-    fn is_replace(&self, value: &T) -> bool {
-        // SAFETY: only called from `flush`, where the observer contains a valid pointer
-        !value.eq_snapshot(unsafe { self.snapshot.assume_init_ref() })
+impl<T: SerializeSnapshot + ?Sized> SerializeHandler for SnapshotHandler<T> {
+    fn flush(&mut self, value: &T) -> Mutations {
+        SerializeSnapshot::flush(value, std::mem::replace(&mut self.snapshot, value.to_snapshot()))
     }
 }
 
@@ -133,8 +136,15 @@ macro_rules! impl_snapshot_observe {
                 fn to_snapshot(&self) -> Self {
                     *self
                 }
-                fn eq_snapshot(&self, snapshot: &Self) -> bool {
-                    self == snapshot
+            }
+
+            impl SerializeSnapshot for $ty {
+                fn flush(&self, snapshot: Self) -> Mutations {
+                    if self != &snapshot {
+                        Mutations::replace(self)
+                    } else {
+                        Mutations::new()
+                    }
                 }
             }
 
@@ -159,17 +169,6 @@ macro_rules! impl_snapshot_observe {
 
                 type Spec = SnapshotSpec;
             }
-
-            impl RwObserve for $ty {
-                type Observer<'ob, S, D>
-                    = SnapshotObserver<'ob, S, D>
-                where
-                    Self: 'ob,
-                    D: Unsigned,
-                    S: AsDeref<D, Target = Self> + ?Sized + 'ob;
-
-                type Spec = SnapshotSpec;
-            }
         )*
     };
 }
@@ -185,9 +184,8 @@ impl_snapshot_observe! {
 
 #[cfg(feature = "chrono")]
 impl_snapshot_observe! {
-    chrono::Days, chrono::FixedOffset, chrono::Month, chrono::Months, chrono::IsoWeek,
-    chrono::NaiveDate, chrono::NaiveDateTime, chrono::NaiveTime, chrono::NaiveWeek,
-    chrono::TimeDelta, chrono::Utc, chrono::Weekday, chrono::WeekdaySet,
+    chrono::Month, chrono::NaiveDate, chrono::NaiveDateTime,
+    chrono::NaiveTime, chrono::TimeDelta, chrono::Weekday,
 }
 
 #[cfg(feature = "uuid")]
@@ -203,8 +201,15 @@ macro_rules! generic_impl_snapshot_observe {
                 fn to_snapshot(&self) -> Self {
                     self.clone()
                 }
-                fn eq_snapshot(&self, snapshot: &Self) -> bool {
-                    self == snapshot
+            }
+
+            impl<$($($gen)*)?> SerializeSnapshot for $ty where Self: serde::Serialize {
+                fn flush(&self, snapshot: Self) -> Mutations {
+                    if self != &snapshot {
+                        Mutations::replace(self)
+                    } else {
+                        Mutations::new()
+                    }
                 }
             }
 
@@ -220,17 +225,6 @@ macro_rules! generic_impl_snapshot_observe {
             }
 
             impl<$($($gen)*)?> RoObserve for $ty {
-                type Observer<'ob, S, D>
-                    = SnapshotObserver<'ob, S, D>
-                where
-                    Self: 'ob,
-                    D: Unsigned,
-                    S: AsDeref<D, Target = Self> + ?Sized + 'ob;
-
-                type Spec = SnapshotSpec;
-            }
-
-            impl<$($($gen)*)?> RwObserve for $ty {
                 type Observer<'ob, S, D>
                     = SnapshotObserver<'ob, S, D>
                 where
