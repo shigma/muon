@@ -5,8 +5,7 @@ use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::iter::FusedIterator;
-use std::marker::PhantomData;
-use std::ops::{Bound, Deref, DerefMut, Index, IndexMut, RangeBounds};
+use std::ops::{Bound, Index, IndexMut, RangeBounds};
 
 use cfg_version::cfg_version;
 use indexmap::map::Entry;
@@ -15,7 +14,8 @@ use serde::Serialize;
 
 use crate::general::{SerializeSnapshot, Snapshot};
 use crate::helper::macros::{default_impl_ro_observe, delegate_methods};
-use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
+use crate::helper::shallow::{ObserverState, SerializeObserverState, shallow_observer};
+use crate::helper::{AsDerefMut, Invalidate, Pointer, QuasiObserver, Unsigned, Zero};
 use crate::observe::{DefaultSpec, Observer, SerializeObserver};
 use crate::{MutationKind, Mutations, Observe, PathSegment};
 
@@ -86,6 +86,88 @@ where
     }
 }
 
+impl<K, O> ObserverState<IndexMap<K, O::Head>> for IndexMapObserverState<K, O>
+where
+    K: Clone + Eq + Hash,
+    O: QuasiObserver<InnerDepth = Zero, Head: Sized>,
+{
+    fn observe(_: &IndexMap<K, O::Head>) -> Self {
+        Default::default()
+    }
+}
+
+impl<K, O> SerializeObserverState<IndexMap<K, O::Head>> for IndexMapObserverState<K, O>
+where
+    K: Serialize + Clone + Eq + Hash + Into<PathSegment> + 'static,
+    O: SerializeObserver<InnerDepth = Zero>,
+    O::Head: Serialize + Sized + 'static,
+{
+    fn flush(&mut self, map: &IndexMap<K, O::Head>) -> Mutations {
+        if !self.mutated {
+            return self.partial_flush(map);
+        }
+        self.mutated = false;
+        self.diff.clear();
+        self.inner.get_mut().clear();
+        Mutations::replace(map)
+    }
+
+    fn flat_flush(&mut self, map: &IndexMap<K, O::Head>) -> Mutations {
+        if !self.mutated {
+            return self.partial_flush(map);
+        }
+        self.mutated = false;
+        self.inner.get_mut().clear();
+        let mut diff = std::mem::take(&mut self.diff);
+        let mut mutations = Mutations::new().with_replace(true);
+        for (key, value) in map {
+            diff.swap_remove(key);
+            mutations.insert(key.clone(), Mutations::replace(value));
+        }
+        for (key, _) in diff {
+            #[cfg(feature = "delete")]
+            mutations.insert(key, MutationKind::Delete);
+            #[cfg(not(feature = "delete"))]
+            unreachable!("delete feature is not enabled");
+        }
+        mutations
+    }
+}
+
+impl<K, O> IndexMapObserverState<K, O>
+where
+    K: Serialize + Clone + Eq + Hash + Into<PathSegment> + 'static,
+    O: SerializeObserver<InnerDepth = Zero>,
+    O::Head: Serialize + Sized + 'static,
+{
+    fn partial_flush(&mut self, map: &IndexMap<K, O::Head>) -> Mutations {
+        let diff = std::mem::take(&mut self.diff);
+        let mut inner = std::mem::take(self.inner.get_mut());
+        let mut mutations = Mutations::new();
+        for (key, value_state) in diff {
+            match value_state {
+                ValueState::Deleted => {
+                    #[cfg(feature = "delete")]
+                    mutations.insert(key, MutationKind::Delete);
+                    #[cfg(not(feature = "delete"))]
+                    return Mutations::replace(map);
+                }
+                ValueState::Replaced | ValueState::Inserted => {
+                    inner.swap_remove(&key);
+                    let value = map.get(&key).expect("replaced key not found in observed map");
+                    mutations.insert(key, Mutations::replace(value));
+                }
+            }
+        }
+        for (key, mut ob) in inner {
+            let value = map.get(&key).expect("observer key not found in observed map");
+            unsafe { O::relocate(&mut ob, value as *const O::Head as *mut O::Head) }
+            mutations.insert(key, O::flush(&mut ob));
+        }
+        mutations
+    }
+}
+
 /// Iterator produced by [`IndexMapObserver::extract_if`].
 #[cfg_version(indexmap = "2.10")]
 pub struct ExtractIf<'a, K, V, O, F>
@@ -135,161 +217,19 @@ where
     }
 }
 
-/// Observer implementation for [`IndexMap<K, V>`](IndexMap).
-///
-/// ## Limitations
-///
-/// Most methods (e.g. [`insert`](Self::insert), [`swap_remove`](Self::swap_remove),
-/// [`get_mut`](Self::get_mut)) require `K: Clone` because the observer maintains its own
-/// [`IndexMap`] of cloned keys to track per-key observers independently of the observed map's
-/// internal storage.
-pub struct IndexMapObserver<K, O, S: ?Sized, D = Zero> {
-    ptr: Pointer<S>,
-    state: IndexMapObserverState<K, O>,
-    phantom: PhantomData<D>,
+shallow_observer! {
+    /// Observer implementation for [`IndexMap<K, V>`](IndexMap).
+    ///
+    /// ## Limitations
+    ///
+    /// Most methods (e.g. [`insert`](Self::insert), [`swap_remove`](Self::swap_remove),
+    /// [`get_mut`](Self::get_mut)) require `K: Clone` because the observer maintains its own
+    /// [`IndexMap`] of cloned keys to track per-key observers independently of the observed map's
+    /// internal storage.
+    struct IndexMapObserver<K, O>(use<V> IndexMap<K, V>, IndexMapObserverState<K, O>);
 }
 
-impl<K, O, S: ?Sized, D> Deref for IndexMapObserver<K, O, S, D> {
-    type Target = Pointer<S>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.ptr
-    }
-}
-
-impl<K, O, S: ?Sized, D> DerefMut for IndexMapObserver<K, O, S, D> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        std::ptr::from_mut(self).expose_provenance();
-        Pointer::invalidate(&mut self.ptr);
-        &mut self.ptr
-    }
-}
-
-impl<K, V, O, S: ?Sized, D> QuasiObserver for IndexMapObserver<K, O, S, D>
-where
-    K: Clone + Eq + Hash,
-    D: Unsigned,
-    S: AsDeref<D, Target = IndexMap<K, V>>,
-    O: Observer<InnerDepth = Zero, Head = V>,
-{
-    type Head = S;
-    type OuterDepth = Succ<Zero>;
-    type InnerDepth = D;
-
-    fn invalidate(this: &mut Self) {
-        Invalidate::invalidate(&mut this.state, (*this.ptr).as_deref());
-    }
-}
-
-impl<K, O, S: ?Sized, D> Observer for IndexMapObserver<K, O, S, D>
-where
-    D: Unsigned,
-    S: AsDeref<D, Target = IndexMap<K, O::Head>>,
-    O: Observer<InnerDepth = Zero>,
-    O::Head: Sized,
-    K: Clone + Eq + Hash,
-{
-    unsafe fn observe(head: *mut Self::Head) -> Self {
-        let this = Self {
-            ptr: unsafe { Pointer::new_unchecked(head) },
-            state: Default::default(),
-            phantom: PhantomData,
-        };
-        Pointer::register_state::<_, D>(&this.ptr, &this.state);
-        this
-    }
-
-    unsafe fn relocate(this: &mut Self, head: *mut Self::Head) {
-        unsafe { Pointer::set_unchecked(this, head) };
-    }
-}
-
-impl<K, O, S: ?Sized, D> IndexMapObserver<K, O, S, D>
-where
-    D: Unsigned,
-    S: AsDeref<D, Target = IndexMap<K, O::Head>>,
-    O: SerializeObserver<InnerDepth = Zero>,
-    O::Head: Serialize + Sized + 'static,
-    K: Serialize + Clone + Eq + Hash + Into<PathSegment> + 'static,
-{
-    unsafe fn partial_flush(&mut self) -> Mutations {
-        let diff = std::mem::take(&mut self.state.diff);
-        let mut inner = std::mem::take(self.state.inner.get_mut());
-        let mut mutations = Mutations::new();
-        for (key, value_state) in diff {
-            match value_state {
-                ValueState::Deleted => {
-                    #[cfg(feature = "delete")]
-                    mutations.insert(key, MutationKind::Delete);
-                    #[cfg(not(feature = "delete"))]
-                    return Mutations::replace((*self).untracked_ref());
-                }
-                ValueState::Replaced | ValueState::Inserted => {
-                    inner.swap_remove(&key);
-                    let value = (*self)
-                        .untracked_ref()
-                        .get(&key)
-                        .expect("replaced key not found in observed map");
-                    mutations.insert(key, Mutations::replace(value));
-                }
-            }
-        }
-        for (key, mut ob) in inner {
-            let value = (*self)
-                .untracked_ref()
-                .get(&key)
-                .expect("observer key not found in observed map");
-            unsafe { O::relocate(&mut ob, value as *const O::Head as *mut O::Head) }
-            mutations.insert(key, O::flush(&mut ob));
-        }
-        mutations
-    }
-}
-
-impl<K, O, S: ?Sized, D> SerializeObserver for IndexMapObserver<K, O, S, D>
-where
-    D: Unsigned,
-    S: AsDeref<D, Target = IndexMap<K, O::Head>>,
-    O: SerializeObserver<InnerDepth = Zero>,
-    O::Head: Serialize + Sized + 'static,
-    K: Serialize + Clone + Eq + Hash + Into<PathSegment> + 'static,
-{
-    fn flush(this: &mut Self) -> Mutations {
-        if !this.state.mutated {
-            return unsafe { this.partial_flush() };
-        }
-        this.state.mutated = false;
-        this.state.diff.clear();
-        this.state.inner.get_mut().clear();
-        Mutations::replace((*this).untracked_ref())
-    }
-
-    fn flat_flush(this: &mut Self) -> Mutations {
-        if !this.state.mutated {
-            return unsafe { this.partial_flush() };
-        }
-        this.state.mutated = false;
-        this.state.inner.get_mut().clear();
-        // After DerefMut, diff contains only Deleted entries representing original keys.
-        // Emit Replace for each current key, Delete for original keys no longer present.
-        let mut diff = std::mem::take(&mut this.state.diff);
-        let map = (*this.ptr).as_deref();
-        let mut mutations = Mutations::new().with_replace(true);
-        for (key, value) in map {
-            diff.swap_remove(key);
-            mutations.insert(key.clone(), Mutations::replace(value));
-        }
-        for (key, _) in diff {
-            #[cfg(feature = "delete")]
-            mutations.insert(key, MutationKind::Delete);
-            #[cfg(not(feature = "delete"))]
-            unreachable!("delete feature is not enabled");
-        }
-        mutations
-    }
-}
-
-impl<K, O, S: ?Sized, D, V> IndexMapObserver<K, O, S, D>
+impl<'ob, K, O, S: ?Sized, D, V> IndexMapObserver<'ob, K, O, S, D>
 where
     D: Unsigned,
     S: AsDerefMut<D, Target = IndexMap<K, V>>,
@@ -321,7 +261,7 @@ where
     }
 }
 
-impl<K, O, S: ?Sized, D, V> IndexMapObserver<K, O, S, D>
+impl<'ob, K, O, S: ?Sized, D, V> IndexMapObserver<'ob, K, O, S, D>
 where
     D: Unsigned,
     S: AsDerefMut<D, Target = IndexMap<K, V>>,
@@ -344,7 +284,7 @@ where
     }
 }
 
-impl<K, O, S: ?Sized, D> IndexMapObserver<K, O, S, D>
+impl<'ob, K, O, S: ?Sized, D> IndexMapObserver<'ob, K, O, S, D>
 where
     D: Unsigned,
     S: AsDerefMut<D, Target = IndexMap<K, O::Head>>,
@@ -386,7 +326,7 @@ where
     }
 }
 
-impl<K, O, S: ?Sized, D> IndexMapObserver<K, O, S, D>
+impl<'ob, K, O, S: ?Sized, D> IndexMapObserver<'ob, K, O, S, D>
 where
     D: Unsigned,
     S: AsDerefMut<D, Target = IndexMap<K, O::Head>>,
@@ -408,7 +348,7 @@ where
     }
 }
 
-impl<K, O, S: ?Sized, D> IndexMapObserver<K, O, S, D>
+impl<'ob, K, O, S: ?Sized, D> IndexMapObserver<'ob, K, O, S, D>
 where
     D: Unsigned,
     S: AsDerefMut<D, Target = IndexMap<K, O::Head>>,
@@ -772,61 +712,7 @@ where
     }
 }
 
-impl<K, V, O, S: ?Sized, D> Debug for IndexMapObserver<K, O, S, D>
-where
-    K: Clone + Eq + Hash,
-    D: Unsigned,
-    S: AsDeref<D, Target = IndexMap<K, V>>,
-    O: Observer<InnerDepth = Zero, Head = V>,
-    IndexMap<K, V>: Debug,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("IndexMapObserver").field(&self.untracked_ref()).finish()
-    }
-}
-
-impl<K, V, O, S: ?Sized, D> PartialEq<IndexMap<K, V>> for IndexMapObserver<K, O, S, D>
-where
-    K: Clone + Eq + Hash,
-    D: Unsigned,
-    S: AsDeref<D, Target = IndexMap<K, V>>,
-    O: Observer<InnerDepth = Zero, Head = V>,
-    IndexMap<K, V>: PartialEq,
-{
-    fn eq(&self, other: &IndexMap<K, V>) -> bool {
-        self.untracked_ref().eq(other)
-    }
-}
-
-impl<K1, K2, V1, V2, O1, O2, S1: ?Sized, S2: ?Sized, D1, D2> PartialEq<IndexMapObserver<K2, O2, S2, D2>>
-    for IndexMapObserver<K1, O1, S1, D1>
-where
-    K1: Clone + Eq + Hash,
-    K2: Clone + Eq + Hash,
-    D1: Unsigned,
-    D2: Unsigned,
-    S1: AsDeref<D1, Target = IndexMap<K1, V1>>,
-    S2: AsDeref<D2, Target = IndexMap<K2, V2>>,
-    O1: Observer<InnerDepth = Zero, Head = V1>,
-    O2: Observer<InnerDepth = Zero, Head = V2>,
-    IndexMap<K1, V1>: PartialEq<IndexMap<K2, V2>>,
-{
-    fn eq(&self, other: &IndexMapObserver<K2, O2, S2, D2>) -> bool {
-        self.untracked_ref().eq(other.untracked_ref())
-    }
-}
-
-impl<K, V, O, S: ?Sized, D> Eq for IndexMapObserver<K, O, S, D>
-where
-    K: Clone + Eq + Hash,
-    D: Unsigned,
-    S: AsDeref<D, Target = IndexMap<K, V>>,
-    O: Observer<InnerDepth = Zero, Head = V>,
-    IndexMap<K, V>: Eq,
-{
-}
-
-impl<'q, K, O, S: ?Sized, D, V, Q: ?Sized> Index<&'q Q> for IndexMapObserver<K, O, S, D>
+impl<'ob, 'q, K, O, S: ?Sized, D, V, Q: ?Sized> Index<&'q Q> for IndexMapObserver<'ob, K, O, S, D>
 where
     D: Unsigned,
     S: AsDerefMut<D, Target = IndexMap<K, V>>,
@@ -841,7 +727,7 @@ where
     }
 }
 
-impl<'q, K, O, S: ?Sized, D, V, Q: ?Sized> IndexMut<&'q Q> for IndexMapObserver<K, O, S, D>
+impl<'ob, 'q, K, O, S: ?Sized, D, V, Q: ?Sized> IndexMut<&'q Q> for IndexMapObserver<'ob, K, O, S, D>
 where
     D: Unsigned,
     S: AsDerefMut<D, Target = IndexMap<K, V>>,
@@ -854,7 +740,7 @@ where
     }
 }
 
-impl<K, O, S: ?Sized, D> Index<usize> for IndexMapObserver<K, O, S, D>
+impl<'ob, K, O, S: ?Sized, D> Index<usize> for IndexMapObserver<'ob, K, O, S, D>
 where
     D: Unsigned,
     S: AsDerefMut<D, Target = IndexMap<K, O::Head>>,
@@ -869,7 +755,7 @@ where
     }
 }
 
-impl<K, O, S: ?Sized, D> IndexMut<usize> for IndexMapObserver<K, O, S, D>
+impl<'ob, K, O, S: ?Sized, D> IndexMut<usize> for IndexMapObserver<'ob, K, O, S, D>
 where
     D: Unsigned,
     S: AsDerefMut<D, Target = IndexMap<K, O::Head>>,
@@ -884,7 +770,7 @@ where
 
 // TODO: this inserts elements one by one, which is much slower than `IndexMap::extend`.
 // Consider a bulk-insert approach that updates `diff` in one pass.
-impl<K, O, S: ?Sized, D> Extend<(K, O::Head)> for IndexMapObserver<K, O, S, D>
+impl<'ob, K, O, S: ?Sized, D> Extend<(K, O::Head)> for IndexMapObserver<'ob, K, O, S, D>
 where
     D: Unsigned,
     S: AsDerefMut<D, Target = IndexMap<K, O::Head>>,
@@ -906,7 +792,7 @@ where
     }
 }
 
-impl<'a, K, O, S: ?Sized, D> Extend<(&'a K, &'a O::Head)> for IndexMapObserver<K, O, S, D>
+impl<'ob, 'a, K, O, S: ?Sized, D> Extend<(&'a K, &'a O::Head)> for IndexMapObserver<'ob, K, O, S, D>
 where
     D: Unsigned,
     S: AsDerefMut<D, Target = IndexMap<K, O::Head>>,
@@ -921,7 +807,7 @@ where
 
 impl<K: Clone + Eq + Hash, V: Observe> Observe for IndexMap<K, V> {
     type Observer<'ob, S, D>
-        = IndexMapObserver<K, V::Observer<'ob, V, Zero>, S, D>
+        = IndexMapObserver<'ob, K, V::Observer<'ob, V, Zero>, S, D>
     where
         Self: 'ob,
         D: Unsigned,
