@@ -2,16 +2,15 @@
 
 use std::cell::UnsafeCell;
 use std::collections::LinkedList;
-use std::fmt::Debug;
 use std::marker::PhantomData;
-use std::ops::{Deref, DerefMut};
 
 use serde::Serialize;
 use serde::ser::SerializeSeq;
 
 use crate::general::{SerializeSnapshot, Snapshot};
 use crate::helper::macros::default_impl_ro_observe;
-use crate::helper::{AsDeref, AsDerefMut, Invalidate, Pointer, QuasiObserver, Succ, Unsigned, Zero};
+use crate::helper::shallow::{ObserverState, SerializeObserverState, shallow_observer};
+use crate::helper::{AsDerefMut, Invalidate, QuasiObserver, Unsigned, Zero};
 use crate::observe::{DefaultSpec, Observer, SerializeObserver};
 use crate::{MutationKind, Mutations, Observe, PathSegment};
 
@@ -56,64 +55,15 @@ where
     }
 }
 
-/// Observer implementation for [`LinkedList<T>`].
-pub struct LinkedListObserver<'ob, O, S: ?Sized, D = Zero> {
-    ptr: Pointer<S>,
-    state: LinkedListObserverState<O>,
-    phantom: PhantomData<&'ob mut D>,
-}
-
-impl<'ob, O, S: ?Sized, D> Deref for LinkedListObserver<'ob, O, S, D> {
-    type Target = Pointer<S>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.ptr
-    }
-}
-
-impl<'ob, O, S: ?Sized, D> DerefMut for LinkedListObserver<'ob, O, S, D> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        std::ptr::from_mut(self).expose_provenance();
-        Pointer::invalidate(&mut self.ptr);
-        &mut self.ptr
-    }
-}
-
-impl<'ob, O, S: ?Sized, D> QuasiObserver for LinkedListObserver<'ob, O, S, D>
+impl<O> ObserverState<LinkedList<O::Head>> for LinkedListObserverState<O>
 where
-    D: Unsigned,
     O: Observer<InnerDepth = Zero, Head: Sized>,
-    S: AsDeref<D, Target = LinkedList<O::Head>>,
 {
-    type Head = S;
-    type OuterDepth = Succ<Zero>;
-    type InnerDepth = D;
-
-    fn invalidate(this: &mut Self) {
-        let len = (*this).untracked_ref().len();
-        this.state.mark_replace(len);
-    }
-}
-
-impl<'ob, O, S: ?Sized, D> Observer for LinkedListObserver<'ob, O, S, D>
-where
-    D: Unsigned,
-    O: Observer<InnerDepth = Zero, Head: Sized>,
-    S: AsDeref<D, Target = LinkedList<O::Head>>,
-{
-    unsafe fn observe(head: *mut Self::Head) -> Self {
+    fn observe(_: &LinkedList<O::Head>) -> Self {
         Self {
-            state: LinkedListObserverState {
-                front: LinkedListObserverSideState::new(),
-                back: LinkedListObserverSideState::new(),
-            },
-            ptr: unsafe { Pointer::new_unchecked(head) },
-            phantom: PhantomData,
+            front: LinkedListObserverSideState::new(),
+            back: LinkedListObserverSideState::new(),
         }
-    }
-
-    unsafe fn relocate(this: &mut Self, head: *mut Self::Head) {
-        unsafe { Pointer::set_unchecked(this, head) };
     }
 }
 
@@ -134,20 +84,17 @@ impl<T: Serialize> Serialize for AppendTail<T> {
     }
 }
 
-impl<'ob, O, S: ?Sized, D> SerializeObserver for LinkedListObserver<'ob, O, S, D>
+impl<O> SerializeObserverState<LinkedList<O::Head>> for LinkedListObserverState<O>
 where
-    D: Unsigned,
     O: SerializeObserver<InnerDepth = Zero, Head: Sized>,
     O::Head: Serialize + 'static,
-    S: AsDeref<D, Target = LinkedList<O::Head>>,
 {
-    fn flush(this: &mut Self) -> Mutations {
-        let list = (*this.ptr).as_deref();
+    fn flush(&mut self, list: &LinkedList<O::Head>) -> Mutations {
         let len = list.len();
-        let front_append = core::mem::replace(&mut this.state.front.append_len, 0);
-        let front_truncate = core::mem::replace(&mut this.state.front.truncate_len, 0);
-        let back_append = core::mem::replace(&mut this.state.back.append_len, 0);
-        let back_truncate = core::mem::replace(&mut this.state.back.truncate_len, 0);
+        let front_append = core::mem::replace(&mut self.front.append_len, 0);
+        let front_truncate = core::mem::replace(&mut self.front.truncate_len, 0);
+        let back_append = core::mem::replace(&mut self.back.append_len, 0);
+        let back_truncate = core::mem::replace(&mut self.back.truncate_len, 0);
 
         let bb = len - back_append;
 
@@ -156,8 +103,8 @@ where
             || cfg!(not(feature = "truncate")) && back_truncate > 0
             || cfg!(not(feature = "append")) && back_append > 0
         {
-            this.state.front.inner.get_mut().clear();
-            this.state.back.inner.get_mut().clear();
+            self.front.inner.get_mut().clear();
+            self.back.inner.get_mut().clear();
             return Mutations::replace(list);
         }
 
@@ -172,8 +119,8 @@ where
             }));
         }
 
-        let front_inner = this.state.front.inner.get_mut();
-        let back_inner = this.state.back.inner.get_mut();
+        let front_inner = self.front.inner.get_mut();
+        let back_inner = self.back.inner.get_mut();
 
         // Strip appended observers from each end (outermost = front of inner)
         let front_appended_obs = front_append.min(front_inner.len());
@@ -225,6 +172,11 @@ where
         }
         mutations
     }
+}
+
+shallow_observer! {
+    /// Observer implementation for [`LinkedList<T>`].
+    struct LinkedListObserver<O>(use<T> LinkedList<T>, LinkedListObserverState<O>);
 }
 
 /// Iterator returned by [`LinkedListObserver::iter_mut`].
@@ -546,57 +498,6 @@ where
         let new_len = (*self).untracked_ref().len();
         self.state.back.append_len += new_len - old_len;
     }
-}
-
-impl<'ob, O, S: ?Sized, D> Debug for LinkedListObserver<'ob, O, S, D>
-where
-    D: Unsigned,
-    O: Observer<InnerDepth = Zero, Head: Sized>,
-    O::Head: Debug,
-    S: AsDeref<D, Target = LinkedList<O::Head>>,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("LinkedListObserver")
-            .field(&self.untracked_ref())
-            .finish()
-    }
-}
-
-impl<'ob, O, S: ?Sized, D, U> PartialEq<LinkedList<U>> for LinkedListObserver<'ob, O, S, D>
-where
-    D: Unsigned,
-    O: Observer<InnerDepth = Zero, Head: Sized>,
-    S: AsDeref<D, Target = LinkedList<O::Head>>,
-    LinkedList<O::Head>: PartialEq<LinkedList<U>>,
-{
-    fn eq(&self, other: &LinkedList<U>) -> bool {
-        self.untracked_ref().eq(other)
-    }
-}
-
-impl<'ob, O1, O2, S1: ?Sized, S2: ?Sized, D1, D2> PartialEq<LinkedListObserver<'ob, O2, S2, D2>>
-    for LinkedListObserver<'ob, O1, S1, D1>
-where
-    D1: Unsigned,
-    D2: Unsigned,
-    O1: Observer<InnerDepth = Zero, Head: Sized>,
-    O2: Observer<InnerDepth = Zero, Head: Sized>,
-    S1: AsDeref<D1, Target = LinkedList<O1::Head>>,
-    S2: AsDeref<D2, Target = LinkedList<O2::Head>>,
-    LinkedList<O1::Head>: PartialEq<LinkedList<O2::Head>>,
-{
-    fn eq(&self, other: &LinkedListObserver<'ob, O2, S2, D2>) -> bool {
-        self.untracked_ref().eq(other.untracked_ref())
-    }
-}
-
-impl<'ob, O, S: ?Sized, D> Eq for LinkedListObserver<'ob, O, S, D>
-where
-    D: Unsigned,
-    O: Observer<InnerDepth = Zero, Head: Sized>,
-    O::Head: Eq,
-    S: AsDeref<D, Target = LinkedList<O::Head>>,
-{
 }
 
 impl<T: Observe> Observe for LinkedList<T> {
