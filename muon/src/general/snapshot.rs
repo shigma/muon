@@ -1,58 +1,9 @@
-use std::marker::PhantomData;
 use std::num::NonZero;
 
-use crate::general::{DebugHandler, GeneralHandler, GeneralObserver, SerializeHandler};
-use crate::helper::{AsDeref, AsDerefMut, Invalidate, Unsigned, Zero};
+use crate::helper::shallow::{ObserverState, SerializeObserverState, shallow_observer};
+use crate::helper::{AsDeref, AsDerefMut, Invalidate, Unsigned};
 use crate::observe::RoObserve;
 use crate::{Mutations, Observe};
-
-/// A general observer that uses snapshot comparison to detect actual value changes.
-///
-/// [`SnapshotObserver`] creates a clone of the initial value and compares it with the
-/// final value using [`PartialEq`]. This provides accurate change detection by comparing
-/// actual values rather than tracking access patterns.
-///
-/// ## Requirements
-///
-/// The observed type must implement:
-/// - [`Clone`] - for creating the snapshot
-/// - [`PartialEq`] - for comparing values
-///
-/// ## Derive Usage
-///
-/// Can be used via the `#[muon(snapshot)]` attribute in derive macros:
-///
-/// ```
-/// # use muon::Observe;
-/// # use serde::Serialize;
-/// # #[derive(Serialize, Observe)]
-/// # struct Uuid;
-/// # #[derive(Serialize, Observe)]
-/// # struct BitFlags;
-/// #[derive(Serialize, Observe)]
-/// struct MyStruct {
-///     #[muon(snapshot)]
-///     id: Uuid,           // Cheap to clone and compare
-///     #[muon(snapshot)]
-///     flags: BitFlags,    // Small Copy type
-/// }
-/// ```
-///
-/// ## When to Use
-///
-/// [`SnapshotObserver`] is ideal when:
-/// 1. The type implements [`Clone`] and [`PartialEq`] with low cost
-/// 2. Values may be modified and then restored to original (so that
-///    [`ShallowObserver`](super::ShallowObserver) would yield false positives)
-///
-/// ## Built-in Usage
-///
-/// All scalar types that are [`Copy`] + [`PartialEq`] use [`SnapshotObserver`] as their default
-/// implementation. This includes numeric primitives ([`i32`], [`f64`], [`bool`], etc.),
-/// [`NonZero`](std::num::NonZero) variants, network types ([`IpAddr`](core::net::IpAddr),
-/// [`SocketAddr`](core::net::SocketAddr)), and time types ([`Duration`](core::time::Duration),
-/// [`SystemTime`](std::time::SystemTime)).
-pub type SnapshotObserver<'ob, S, D = Zero> = GeneralObserver<'ob, SnapshotHandler<<S as AsDeref<D>>::Target>, S, D>;
 
 /// A trait for creating snapshots of observable values.
 ///
@@ -91,34 +42,106 @@ pub trait SerializeSnapshot: Snapshot + serde::Serialize {
     fn flush(&self, snapshot: Self::Snapshot) -> Mutations;
 }
 
-pub struct SnapshotHandler<T: Snapshot + ?Sized> {
+struct SnapshotObserverState<T: Snapshot + ?Sized> {
     snapshot: T::Snapshot,
-    phantom: PhantomData<T>,
 }
 
-impl<T: Snapshot + ?Sized> Invalidate<T> for SnapshotHandler<T> {
+impl<T: Snapshot + ?Sized> Invalidate<T> for SnapshotObserverState<T> {
     fn invalidate(&mut self, _: &T) {}
 }
 
-impl<T: Snapshot + ?Sized> GeneralHandler for SnapshotHandler<T> {
-    type Target = T;
-
+impl<T: Snapshot + ?Sized> ObserverState<T> for SnapshotObserverState<T> {
     fn observe(value: &T) -> Self {
         Self {
             snapshot: value.to_snapshot(),
-            phantom: PhantomData,
         }
     }
 }
 
-impl<T: SerializeSnapshot + ?Sized> SerializeHandler for SnapshotHandler<T> {
+impl<T: SerializeSnapshot + ?Sized> SerializeObserverState<T> for SnapshotObserverState<T> {
     fn flush(&mut self, value: &T) -> Mutations {
         SerializeSnapshot::flush(value, std::mem::replace(&mut self.snapshot, value.to_snapshot()))
     }
 }
 
-impl<T: Snapshot + ?Sized> DebugHandler for SnapshotHandler<T> {
-    const NAME: &'static str = "SnapshotObserver";
+shallow_observer! {
+    /// A general observer that uses snapshot comparison to detect actual value changes.
+    ///
+    /// [`SnapshotObserver`] creates a clone of the initial value and compares it with the
+    /// final value using [`PartialEq`]. This provides accurate change detection by comparing
+    /// actual values rather than tracking access patterns.
+    ///
+    /// ## Requirements
+    ///
+    /// The observed type must implement:
+    /// - [`Clone`] - for creating the snapshot
+    /// - [`PartialEq`] - for comparing values
+    ///
+    /// ## Derive Usage
+    ///
+    /// Can be used via the `#[muon(snapshot)]` attribute in derive macros:
+    ///
+    /// ```
+    /// # use muon::Observe;
+    /// # use serde::Serialize;
+    /// # #[derive(Serialize, Observe)]
+    /// # struct Uuid;
+    /// # #[derive(Serialize, Observe)]
+    /// # struct BitFlags;
+    /// #[derive(Serialize, Observe)]
+    /// struct MyStruct {
+    ///     #[muon(snapshot)]
+    ///     id: Uuid,           // Cheap to clone and compare
+    ///     #[muon(snapshot)]
+    ///     flags: BitFlags,    // Small Copy type
+    /// }
+    /// ```
+    ///
+    /// ## When to Use
+    ///
+    /// [`SnapshotObserver`] is ideal when:
+    /// 1. The type implements [`Clone`] and [`PartialEq`] with low cost
+    /// 2. Values may be modified and then restored to original (so that
+    ///    [`ShallowObserver`](super::ShallowObserver) would yield false positives)
+    ///
+    /// ## Built-in Usage
+    ///
+    /// All scalar types that are [`Copy`] + [`PartialEq`] use [`SnapshotObserver`] as their default
+    /// implementation. This includes numeric primitives ([`i32`], [`f64`], [`bool`], etc.),
+    /// [`NonZero`](std::num::NonZero) variants, network types ([`IpAddr`](core::net::IpAddr),
+    /// [`SocketAddr`](core::net::SocketAddr)), and time types ([`Duration`](core::time::Duration),
+    /// [`SystemTime`](std::time::SystemTime)).
+    struct SnapshotObserver<T: Snapshot>(T, SnapshotObserverState<T>);
+}
+
+macro_rules! impl_ops_assign {
+    ($($trait:ident => $method:ident),* $(,)?) => {
+        $(
+            impl<'ob, T, S: ?Sized, D, U> std::ops::$trait<U> for SnapshotObserver<'ob, T, S, D>
+            where
+                T: Snapshot + std::ops::$trait<U>,
+                D: $crate::helper::Unsigned,
+                S: $crate::helper::AsDerefMut<D, Target = T>,
+            {
+                fn $method(&mut self, rhs: U) {
+                    $crate::helper::QuasiObserver::tracked_mut(self).$method(rhs);
+                }
+            }
+        )*
+    };
+}
+
+impl_ops_assign! {
+    AddAssign => add_assign,
+    SubAssign => sub_assign,
+    MulAssign => mul_assign,
+    DivAssign => div_assign,
+    RemAssign => rem_assign,
+    BitAndAssign => bitand_assign,
+    BitOrAssign => bitor_assign,
+    BitXorAssign => bitxor_assign,
+    ShlAssign => shl_assign,
+    ShrAssign => shr_assign,
 }
 
 /// Snapshot-based observation specification.
@@ -150,7 +173,7 @@ macro_rules! impl_snapshot_observe {
 
             impl Observe for $ty {
                 type Observer<'ob, S, D>
-                    = SnapshotObserver<'ob, S, D>
+                    = SnapshotObserver<'ob, Self, S, D>
                 where
                     Self: 'ob,
                     D: Unsigned,
@@ -161,7 +184,7 @@ macro_rules! impl_snapshot_observe {
 
             impl RoObserve for $ty {
                 type Observer<'ob, S, D>
-                    = SnapshotObserver<'ob, S, D>
+                    = SnapshotObserver<'ob, Self, S, D>
                 where
                     Self: 'ob,
                     D: Unsigned,
@@ -215,7 +238,7 @@ macro_rules! generic_impl_snapshot_observe {
 
             impl<$($($gen)*)?> Observe for $ty {
                 type Observer<'ob, S, D>
-                    = SnapshotObserver<'ob, S, D>
+                    = SnapshotObserver<'ob, Self, S, D>
                 where
                     Self: 'ob,
                     D: Unsigned,
@@ -226,7 +249,7 @@ macro_rules! generic_impl_snapshot_observe {
 
             impl<$($($gen)*)?> RoObserve for $ty {
                 type Observer<'ob, S, D>
-                    = SnapshotObserver<'ob, S, D>
+                    = SnapshotObserver<'ob, Self, S, D>
                 where
                     Self: 'ob,
                     D: Unsigned,

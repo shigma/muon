@@ -226,7 +226,7 @@ shallow_observer! {
     /// [`get_mut`](Self::get_mut)) require `K: Clone` because the observer maintains its own
     /// [`IndexMap`] of cloned keys to track per-key observers independently of the observed map's
     /// internal storage.
-    struct IndexMapObserver<K, O>(use<V> IndexMap<K, V>, IndexMapObserverState<K, O>);
+    struct IndexMapObserver<K, O>(for<V> IndexMap<K, V>, IndexMapObserverState<K, O>);
 }
 
 impl<'ob, K, O, S: ?Sized, D, V> IndexMapObserver<'ob, K, O, S, D>

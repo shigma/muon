@@ -241,7 +241,7 @@ mod tests {
 
     use super::*;
     use crate::adapter::Json;
-    use crate::general::GeneralObserver;
+    use crate::general::SnapshotObserver;
     use crate::helper::QuasiObserver;
     use crate::observe::{ObserveExt, SerializeObserverExt};
 
@@ -303,7 +303,7 @@ mod tests {
     #[test]
     fn specialization() {
         let mut bound: Bound<i32> = Bound::Included(0);
-        let ob: GeneralObserver<_, _, _> = bound.__observe();
+        let ob: SnapshotObserver<_, _, _> = bound.__observe();
         assert_eq!(format!("{ob:?}"), "SnapshotObserver(Included(0))");
 
         let mut bound: Bound<&str> = Bound::Included("");

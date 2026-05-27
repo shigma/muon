@@ -394,7 +394,7 @@ mod tests {
 
     use super::*;
     use crate::adapter::Json;
-    use crate::general::GeneralObserver;
+    use crate::general::SnapshotObserver;
     use crate::helper::QuasiObserver;
     use crate::observe::{ObserveExt, SerializeObserverExt};
 
@@ -445,7 +445,7 @@ mod tests {
     #[test]
     fn range_specialization() {
         let mut range = 0..10i32;
-        let ob: GeneralObserver<_, _, _> = range.__observe();
+        let ob: SnapshotObserver<_, _, _> = range.__observe();
         assert_eq!(format!("{ob:?}"), "SnapshotObserver(0..10)");
 
         let mut range = String::from("a")..String::from("z");

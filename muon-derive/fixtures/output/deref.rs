@@ -245,13 +245,10 @@ const _: () = {
         }
     }
     #[automatically_derived]
-    impl ::muon::Observe for Bar
-    where
-        Qux: ::muon::Observe,
-    {
+    impl ::muon::Observe for Bar {
         type Observer<'ob, S, N> = BarObserver<
             'ob,
-            ::muon::general::ShallowObserver<'ob, S, ::muon::helper::Succ<N>>,
+            ::muon::general::ShallowObserver<'ob, Qux, S, ::muon::helper::Succ<N>>,
         >
         where
             Self: 'ob,

@@ -222,7 +222,7 @@ shallow_observer! {
     /// [`get_mut`](Self::get_mut)) require `K: Clone` because the observer maintains its own
     /// [`HashMap`] of cloned keys to track per-key observers independently of the observed map's
     /// internal storage.
-    struct HashMapObserver<K, O>(use<V> HashMap<K, V>, HashMapObserverState<K, O>);
+    struct HashMapObserver<K, O>(for<V> HashMap<K, V>, HashMapObserverState<K, O>);
 }
 
 impl<'ob, K, O, S: ?Sized, D> HashMapObserver<'ob, K, O, S, D>

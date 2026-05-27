@@ -9,7 +9,7 @@ pub struct Foo<T> {
 #[rustfmt::skip]
 #[automatically_derived]
 impl<T> ::muon::Observe for Foo<T> {
-    type Observer<'ob, S, N> = ::muon::general::ShallowObserver<'ob, S, N>
+    type Observer<'ob, S, N> = ::muon::general::ShallowObserver<'ob, Self, S, N>
     where
         Self: 'ob,
         N: ::muon::helper::Unsigned,
@@ -66,7 +66,7 @@ impl<T> ::muon::Observe for Bar<T>
 where
     Self: ::muon::general::Snapshot,
 {
-    type Observer<'ob, S, N> = ::muon::general::SnapshotObserver<'ob, S, N>
+    type Observer<'ob, S, N> = ::muon::general::SnapshotObserver<'ob, Self, S, N>
     where
         Self: 'ob,
         N: ::muon::helper::Unsigned,
@@ -92,7 +92,7 @@ impl ::muon::general::SerializeSnapshot for NoopStruct {
 #[rustfmt::skip]
 #[automatically_derived]
 impl ::muon::Observe for NoopStruct {
-    type Observer<'ob, S, N> = ::muon::general::NoopObserver<'ob, S, N>
+    type Observer<'ob, S, N> = ::muon::general::NoopObserver<'ob, Self, S, N>
     where
         Self: 'ob,
         N: ::muon::helper::Unsigned,

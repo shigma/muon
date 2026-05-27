@@ -24,7 +24,7 @@ macro_rules! impl_atomic {
 
             impl Observe for std::sync::atomic::$ident {
                 type Observer<'ob, S, D>
-                    = SnapshotObserver<'ob, S, D>
+                    = SnapshotObserver<'ob, Self, S, D>
                 where
                     Self: 'ob,
                     D: Unsigned,
@@ -35,7 +35,7 @@ macro_rules! impl_atomic {
 
             impl RoObserve for std::sync::atomic::$ident {
                 type Observer<'ob, S, D>
-                    = SnapshotObserver<'ob, S, D>
+                    = SnapshotObserver<'ob, Self, S, D>
                 where
                     Self: 'ob,
                     D: Unsigned,

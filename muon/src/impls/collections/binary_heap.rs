@@ -15,7 +15,7 @@ use crate::{MutationKind, Mutations, Observe};
 
 shallow_observer! {
     /// Observer implementation for [`BinaryHeap<T>`].
-    struct BinaryHeapObserver(use<T> BinaryHeap<T>);
+    struct BinaryHeapObserver(for<T> BinaryHeap<T>);
 }
 
 /// Handle produced by [`BinaryHeapObserver::peek_mut`].

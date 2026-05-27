@@ -41,6 +41,7 @@ pub fn derive_observe_for_enum(
     let mut field_tys = vec![];
     let mut ob_field_tys = vec![];
     let mut skipped_tys = vec![];
+    let mut general_predicates = vec![];
     let mut has_variant = false;
     let mut has_initial = false;
     for variant in variants {
@@ -152,11 +153,18 @@ pub fn derive_observe_for_enum(
                     ::muon::observe::DefaultObserver<#ob_lt, #field_ty>
                 },
                 Some(GeneralImpl { ob_ident, .. }) => parse_quote_spanned! { field_span =>
-                    ::muon::general::#ob_ident<#ob_lt, #field_ty>
+                    ::muon::general::#ob_ident<#ob_lt, #field_ty, #field_ty>
                 },
             };
             if !field_trivial {
-                field_tys.push(quote! { #field_ty });
+                if let Some(GeneralImpl { bounds, .. }) = &field_meta.general_impl {
+                    skipped_tys.push(quote! { #field_ty });
+                    if !bounds.is_empty() {
+                        general_predicates.push(quote! { #field_ty: #bounds });
+                    }
+                } else {
+                    field_tys.push(quote! { #field_ty });
+                }
                 ob_field_tys.push(quote! { #ob_field_ty });
             }
             variant_fields.extend(quote! {
@@ -468,7 +476,8 @@ pub fn derive_observe_for_enum(
         #input_vis enum #ob_variant_ident #ob_variant_generics
         where
             #(#input_predicates,)*
-            #(#field_tys: ::muon::Observe + #ob_lt),*
+            #(#field_tys: ::muon::Observe + #ob_lt,)*
+            #(#general_predicates,)*
         {
             #ob_variant_variants
         }
@@ -476,7 +485,8 @@ pub fn derive_observe_for_enum(
         impl #ob_variant_impl_generics #ob_variant_ident #ob_variant_type_generics
         where
             #(#input_predicates,)*
-            #(#field_tys: ::muon::Observe),*
+            #(#field_tys: ::muon::Observe,)*
+            #(#general_predicates,)*
         {
             unsafe fn observe(__ptr: *mut #input_ident #input_type_generics) -> Self {
                 unsafe { match &*__ptr {
@@ -520,7 +530,8 @@ pub fn derive_observe_for_enum(
         #input_vis struct #ob_ident #ob_generics
         where
             #(#input_predicates,)*
-            #(#field_tys: ::muon::Observe + #ob_lt),*
+            #(#field_tys: ::muon::Observe + #ob_lt,)*
+            #(#general_predicates,)*
         {
             ptr: ::muon::helper::Pointer<#head>,
             #(#if_has_variant mutated: bool,)*
@@ -539,6 +550,7 @@ pub fn derive_observe_for_enum(
         where
             #(#input_predicates,)*
             #(#field_tys: ::muon::Observe,)*
+            #(#general_predicates,)*
         {
             type Target = ::muon::helper::Pointer<#head>;
             fn deref(&self) -> &Self::Target {
@@ -552,6 +564,7 @@ pub fn derive_observe_for_enum(
         where
             #(#input_predicates,)*
             #(#field_tys: ::muon::Observe,)*
+            #(#general_predicates,)*
         {
             fn deref_mut(&mut self) -> &mut Self::Target {
                 #(#if_has_variant
@@ -568,6 +581,7 @@ pub fn derive_observe_for_enum(
         where
             #(#input_predicates,)*
             #(#field_tys: ::muon::Observe,)*
+            #(#general_predicates,)*
             #head: ::muon::helper::AsDeref<#depth>,
             #depth: ::muon::helper::Unsigned,
         {
@@ -590,6 +604,7 @@ pub fn derive_observe_for_enum(
             #(#input_predicates,)*
             #(#skipped_tys: #ob_lt,)*
             #(#field_tys: ::muon::Observe,)*
+            #(#general_predicates,)*
             #head: ::muon::helper::AsDeref<#depth, Target = #input_ident #input_type_generics>,
             #depth: ::muon::helper::Unsigned,
         {
@@ -623,6 +638,7 @@ pub fn derive_observe_for_enum(
             #(#input_predicates,)*
             #(#skipped_tys: #ob_lt,)*
             #(#field_tys: ::muon::Observe,)*
+            #(#general_predicates,)*
             #head: ::muon::helper::AsDeref<#depth, Target = #input_ident #input_type_generics>,
             #depth: ::muon::helper::Unsigned,
             #(#ob_field_tys: ::muon::observe::SerializeObserver,)*
@@ -661,6 +677,7 @@ pub fn derive_observe_for_enum(
             #self_serialize_predicates
             #(#input_predicates,)*
             #(#field_tys: ::muon::Observe,)*
+            #(#general_predicates,)*
         {
             type Observer<#ob_lt, #head, #depth> = #ob_ident #ob_type_generics
             where
@@ -682,6 +699,7 @@ pub fn derive_observe_for_enum(
                 where
                     #(#input_predicates,)*
                     #(#field_tys: ::muon::Observe,)*
+                    #(#general_predicates,)*
                     #head: ::muon::helper::AsDeref<#depth, Target = #input_ident #input_type_generics>,
                     #depth: ::muon::helper::Unsigned,
                 {
@@ -698,6 +716,7 @@ pub fn derive_observe_for_enum(
                 where
                     #(#input_predicates,)*
                     #(#field_tys: ::muon::Observe,)*
+                    #(#general_predicates,)*
                     #head: ::muon::helper::AsDeref<#depth, Target = #input_ident #input_type_generics>,
                     #depth: ::muon::helper::Unsigned,
                 {
@@ -714,6 +733,7 @@ pub fn derive_observe_for_enum(
                 where
                     #(#input_predicates,)*
                     #(#field_tys: ::muon::Observe,)*
+                    #(#general_predicates,)*
                     #head: ::muon::helper::AsDeref<#depth, Target = #input_ident #input_type_generics>,
                     #depth: ::muon::helper::Unsigned,
                 {}
@@ -726,6 +746,7 @@ pub fn derive_observe_for_enum(
                 where
                     #(#input_predicates,)*
                     #(#field_tys: ::muon::Observe,)*
+                    #(#general_predicates,)*
                     #head: ::muon::helper::AsDeref<#depth, Target = #input_ident #input_type_generics>,
                     #depth: ::muon::helper::Unsigned,
                 {
@@ -742,6 +763,7 @@ pub fn derive_observe_for_enum(
                 where
                     #(#input_predicates,)*
                     #(#field_tys: ::muon::Observe,)*
+                    #(#general_predicates,)*
                     #head: ::muon::helper::AsDeref<#depth, Target = #input_ident #input_type_generics>,
                     #depth: ::muon::helper::Unsigned,
                 {

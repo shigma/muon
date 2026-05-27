@@ -41,7 +41,7 @@ macro_rules! spec_impl_observe {
             T: $crate::general::Snapshot + $crate::observe::Observe<Spec = $crate::observe::SnapshotSpec>,
         {
             type Observer<'ob, S, D $(, const $arg: $arg_ty)*>
-                = $crate::general::SnapshotObserver<'ob, S, D>
+                = $crate::general::SnapshotObserver<'ob, $ty_self, S, D>
             where
                 Self: 'ob,
                 D: Unsigned,
@@ -93,7 +93,7 @@ macro_rules! spec_impl_observe_from_ro {
             T: $crate::general::Snapshot + $crate::observe::RoObserve<Spec = $crate::observe::SnapshotSpec>,
         {
             type Observer<'ob, S, D $(, const $arg: $arg_ty)*>
-                = $crate::general::SnapshotObserver<'ob, S, D>
+                = $crate::general::SnapshotObserver<'ob, $ty_self, S, D>
             where
                 Self: 'ob,
                 D: Unsigned,
@@ -145,7 +145,7 @@ macro_rules! spec_impl_ro_observe {
             T: $crate::general::Snapshot + $crate::observe::RoObserve<Spec = $crate::observe::SnapshotSpec>,
         {
             type Observer<'ob, S, D $(, const $arg: $arg_ty)*>
-                = $crate::general::SnapshotObserver<'ob, S, D>
+                = $crate::general::SnapshotObserver<'ob, $ty_self, S, D>
             where
                 Self: 'ob,
                 D: Unsigned,

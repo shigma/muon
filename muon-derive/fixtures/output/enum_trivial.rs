@@ -200,7 +200,7 @@ impl ::muon::Observe for Bar
 where
     Self: ::muon::general::Snapshot,
 {
-    type Observer<'ob, S, N> = ::muon::general::SnapshotObserver<'ob, S, N>
+    type Observer<'ob, S, N> = ::muon::general::SnapshotObserver<'ob, Self, S, N>
     where
         Self: 'ob,
         N: ::muon::helper::Unsigned,

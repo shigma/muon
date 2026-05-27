@@ -131,9 +131,9 @@ impl<'ob, T: Debug + ?Sized, V: ?Sized> Debug for ShallowMut<'ob, T, V> {
 ///
 /// ## Syntax
 ///
-/// - `struct $ob(use<T> $ty)` — uses `bool` as the state type; `T` is type-only (impl bounds).
+/// - `struct $ob(for<T> $ty)` — uses `bool` as the state type; `T` is type-only (impl bounds).
 /// - `struct $ob<T>($ty, $state)` — `T` goes on the struct (appears in `$state`).
-/// - `struct $ob<K, O>(use<V> $ty, $state)` — `K, O` on struct, `V` type-only.
+/// - `struct $ob<K, O>(for<V> $ty, $state)` — `K, O` on struct, `V` type-only.
 ///
 /// Single-param forms (state = `bool`) also generate [`Observe`](crate::Observe).
 /// Two-param forms do NOT generate `Observe` — write it by hand with appropriate bounds.
@@ -148,57 +148,71 @@ macro_rules! __shallow_observer {
     () => {};
 
     ($(#[$meta:meta])* struct $ob:ident ($($arg:tt)*); $($rest:tt)*) => {
-        $crate::__shallow_observer!(@impl $(#[$meta])* struct $ob [] ($($arg)*););
+        $crate::__shallow_observer!(@impl $(#[$meta])* struct $ob [] [] ($($arg)*););
         $crate::__shallow_observer!($($rest)*);
     };
 
     ($(#[$meta:meta])* struct $ob:ident < $($rest:tt)*) => {
-        $crate::__shallow_observer!(@gen $(#[$meta])* struct $ob [] $($rest)*);
+        $crate::__shallow_observer!(@gen $(#[$meta])* struct $ob [] [] $($rest)*);
     };
 
-    (@gen $(#[$meta:meta])* struct $ob:ident [$($gen:tt)*] > ($($arg:tt)*); $($rest:tt)*) => {
-        $crate::__shallow_observer!(@impl $(#[$meta])* struct $ob [$($gen)* ,] ($($arg)*););
+    // End of generics: ident followed by `>`
+    (@gen $(#[$meta:meta])* struct $ob:ident [$($def:tt)*] [$($use:tt)*] $id:ident > ($($arg:tt)*); $($rest:tt)*) => {
+        $crate::__shallow_observer!(@impl $(#[$meta])* struct $ob [$($def)* $id,] [$($use)* $id,] ($($arg)*););
         $crate::__shallow_observer!($($rest)*);
     };
 
-    (@gen $(#[$meta:meta])* struct $ob:ident [$($gen:tt)*] >> ($($arg:tt)*); $($rest:tt)*) => {
-        $crate::__shallow_observer!(@impl $(#[$meta])* struct $ob [$($gen)* >,] ($($arg)*););
+    // End of generics: ident with bound followed by `>`
+    (@gen $(#[$meta:meta])* struct $ob:ident [$($def:tt)*] [$($use:tt)*] $id:ident : $bound:path > ($($arg:tt)*); $($rest:tt)*) => {
+        $crate::__shallow_observer!(@impl $(#[$meta])* struct $ob [$($def)* $id: $bound,] [$($use)* $id,] ($($arg)*););
         $crate::__shallow_observer!($($rest)*);
     };
 
-    (@gen $(#[$meta:meta])* struct $ob:ident [$($gen:tt)*] $tt:tt $($rest:tt)*) => {
-        $crate::__shallow_observer!(@gen $(#[$meta])* struct $ob [$($gen)* $tt] $($rest)*);
+    // End of generics: `>>` (nested angle bracket)
+    (@gen $(#[$meta:meta])* struct $ob:ident [$($def:tt)*] [$($use:tt)*] $id:ident >> ($($arg:tt)*); $($rest:tt)*) => {
+        $crate::__shallow_observer!(@impl $(#[$meta])* struct $ob [$($def)* $id >,] [$($use)* $id >,] ($($arg)*););
+        $crate::__shallow_observer!($($rest)*);
     };
 
-    // Single-param with use<>: ty_gen in impls only, state = bool
-    (@impl $(#[$meta:meta])* struct $ob:ident [$($sg:tt)*] (use<$($tg:ident),*> $ty:ty);) => {
-        $crate::__shallow_observer!(@impl_body $(#[$meta])* struct $ob [$($sg)* $($tg,)*] [$($sg)*] ($ty) (bool););
+    // Comma-separated ident
+    (@gen $(#[$meta:meta])* struct $ob:ident [$($def:tt)*] [$($use:tt)*] $id:ident , $($rest:tt)*) => {
+        $crate::__shallow_observer!(@gen $(#[$meta])* struct $ob [$($def)* $id,] [$($use)* $id,] $($rest)*);
     };
 
-    // Single-param without use<>: no ty_gen, state = bool
-    (@impl $(#[$meta:meta])* struct $ob:ident [$($sg:tt)*] ($ty:ty);) => {
-        $crate::__shallow_observer!(@impl_body $(#[$meta])* struct $ob [$($sg)*] [$($sg)*] ($ty) (bool););
+    // Comma-separated ident with bound
+    (@gen $(#[$meta:meta])* struct $ob:ident [$($def:tt)*] [$($use:tt)*] $id:ident : $bound:path , $($rest:tt)*) => {
+        $crate::__shallow_observer!(@gen $(#[$meta])* struct $ob [$($def)* $id: $bound,] [$($use)* $id,] $($rest)*);
     };
 
-    // Two-param with use<>: ty_gen in impls only, state_gen on struct
-    (@impl $(#[$meta:meta])* struct $ob:ident [$($sg:tt)*] (use<$($tg:ident),*> $vis_ptr:vis $ty:ty, $vis_state:vis $state:ty);) => {
-        $crate::__shallow_observer!(@impl_body $(#[$meta])* struct $ob [$($sg)* $($tg,)*] [$($sg)*] ($vis_ptr $ty) ($vis_state $state););
+    // Single-param with for<>: ty_gen in impls only, state = bool
+    (@impl $(#[$meta:meta])* struct $ob:ident [$($sd:tt)*] [$($su:tt)*] (for<$($tg:ident),*> $ty:ty);) => {
+        $crate::__shallow_observer!(@impl_body $(#[$meta])* struct $ob [$($sd)* $($tg,)*] [$($su)*] [$($sd)*] ($ty) (bool););
     };
 
-    // Two-param without use<>: state_gen on struct
-    (@impl $(#[$meta:meta])* struct $ob:ident [$($sg:tt)*] ($vis_ptr:vis $ty:ty, $vis_state:vis $state:ty);) => {
-        $crate::__shallow_observer!(@impl_body $(#[$meta])* struct $ob [$($sg)*] [$($sg)*] ($vis_ptr $ty) ($vis_state $state););
+    // Single-param without for<>: no ty_gen, state = bool
+    (@impl $(#[$meta:meta])* struct $ob:ident [$($sd:tt)*] [$($su:tt)*] ($ty:ty);) => {
+        $crate::__shallow_observer!(@impl_body $(#[$meta])* struct $ob [$($sd)*] [$($su)*] [$($sd)*] ($ty) (bool););
     };
 
-    (@impl_body $(#[$meta:meta])* struct $ob:ident [$($tg:tt)*] [$($sg:tt)*] ($vis_ptr:vis $ty:ty) ($vis_state:vis $state:ty);) => {
+    // Two-param with for<>: ty_gen in impls only, state_gen on struct
+    (@impl $(#[$meta:meta])* struct $ob:ident [$($sd:tt)*] [$($su:tt)*] (for<$($tg:ident),*> $vis_ptr:vis $ty:ty, $vis_state:vis $state:ty);) => {
+        $crate::__shallow_observer!(@impl_body $(#[$meta])* struct $ob [$($sd)* $($tg,)*] [$($su)*] [$($sd)*] ($vis_ptr $ty) ($vis_state $state););
+    };
+
+    // Two-param without for<>: state_gen on struct
+    (@impl $(#[$meta:meta])* struct $ob:ident [$($sd:tt)*] [$($su:tt)*] ($vis_ptr:vis $ty:ty, $vis_state:vis $state:ty);) => {
+        $crate::__shallow_observer!(@impl_body $(#[$meta])* struct $ob [$($sd)*] [$($su)*] [$($sd)*] ($vis_ptr $ty) ($vis_state $state););
+    };
+
+    (@impl_body $(#[$meta:meta])* struct $ob:ident [$($tg:tt)*] [$($su:tt)*] [$($sd:tt)*] ($vis_ptr:vis $ty:ty) ($vis_state:vis $state:ty);) => {
         $(#[$meta])*
-        pub struct $ob<'ob, $($sg)* S: ?Sized, D = $crate::helper::Zero> {
+        pub struct $ob<'ob, $($sd)* S: ?Sized, D = $crate::helper::Zero> {
             $vis_ptr ptr: $crate::helper::Pointer<S>,
             $vis_state state: $state,
             pub(crate) phantom: ::std::marker::PhantomData<&'ob mut D>,
         }
 
-        impl<'ob, $($sg)* S: ?Sized, D> ::std::ops::Deref for $ob<'ob, $($sg)* S, D> {
+        impl<'ob, $($sd)* S: ?Sized, D> ::std::ops::Deref for $ob<'ob, $($su)* S, D> {
             type Target = $crate::helper::Pointer<S>;
 
             fn deref(&self) -> &Self::Target {
@@ -206,7 +220,7 @@ macro_rules! __shallow_observer {
             }
         }
 
-        impl<'ob, $($tg)* S: ?Sized, D> ::std::ops::DerefMut for $ob<'ob, $($sg)* S, D>
+        impl<'ob, $($tg)* S: ?Sized, D> ::std::ops::DerefMut for $ob<'ob, $($su)* S, D>
         where
             D: $crate::helper::Unsigned,
             S: $crate::helper::AsDeref<D, Target = $ty>,
@@ -218,7 +232,7 @@ macro_rules! __shallow_observer {
             }
         }
 
-        impl<'ob, $($tg)* S: ?Sized, D> $crate::helper::QuasiObserver for $ob<'ob, $($sg)* S, D>
+        impl<'ob, $($tg)* S: ?Sized, D> $crate::helper::QuasiObserver for $ob<'ob, $($su)* S, D>
         where
             D: $crate::helper::Unsigned,
             S: $crate::helper::AsDeref<D, Target = $ty>,
@@ -233,7 +247,7 @@ macro_rules! __shallow_observer {
             }
         }
 
-        impl<'ob, $($tg)* S: ?Sized, D> $crate::observe::Observer for $ob<'ob, $($sg)* S, D>
+        impl<'ob, $($tg)* S: ?Sized, D> $crate::observe::Observer for $ob<'ob, $($su)* S, D>
         where
             D: $crate::helper::Unsigned,
             S: $crate::helper::AsDeref<D, Target = $ty>,
@@ -256,7 +270,7 @@ macro_rules! __shallow_observer {
             }
         }
 
-        impl<'ob, $($tg)* S: ?Sized, D> $crate::observe::SerializeObserver for $ob<'ob, $($sg)* S, D>
+        impl<'ob, $($tg)* S: ?Sized, D> $crate::observe::SerializeObserver for $ob<'ob, $($su)* S, D>
         where
             D: $crate::helper::Unsigned,
             S: $crate::helper::AsDeref<D, Target = $ty>,
@@ -277,7 +291,7 @@ macro_rules! __shallow_observer {
             }
         }
 
-        impl<'ob, $($tg)* S: ?Sized, D> AsMut<$ty> for $ob<'ob, $($sg)* S, D>
+        impl<'ob, $($tg)* S: ?Sized, D> AsMut<$ty> for $ob<'ob, $($su)* S, D>
         where
             D: $crate::helper::Unsigned,
             S: $crate::helper::AsDerefMut<D, Target = $ty>,
@@ -288,7 +302,7 @@ macro_rules! __shallow_observer {
             }
         }
 
-        impl<'ob, $($tg)* S: ?Sized, D> std::fmt::Debug for $ob<'ob, $($sg)* S, D>
+        impl<'ob, $($tg)* S: ?Sized, D> std::fmt::Debug for $ob<'ob, $($su)* S, D>
         where
             D: $crate::helper::Unsigned,
             S: $crate::helper::AsDeref<D, Target = $ty>,
@@ -300,19 +314,19 @@ macro_rules! __shallow_observer {
             }
         }
 
-        impl<'ob, $($tg)* S: ?Sized, D> PartialEq for $ob<'ob, $($sg)* S, D>
+        impl<'ob, $($tg)* S: ?Sized, D> PartialEq for $ob<'ob, $($su)* S, D>
         where
             D: $crate::helper::Unsigned,
             S: $crate::helper::AsDeref<D, Target = $ty>,
             $state: $crate::helper::Invalidate<$ty>,
             $ty: PartialEq,
         {
-            fn eq(&self, other: &$ob<'ob, $($sg)* S, D>) -> bool {
+            fn eq(&self, other: &$ob<'ob, $($su)* S, D>) -> bool {
                 $crate::helper::QuasiObserver::untracked_ref(self).eq($crate::helper::QuasiObserver::untracked_ref(other))
             }
         }
 
-        impl<'ob, $($tg)* S: ?Sized, D> Eq for $ob<'ob, $($sg)* S, D>
+        impl<'ob, $($tg)* S: ?Sized, D> Eq for $ob<'ob, $($su)* S, D>
         where
             D: $crate::helper::Unsigned,
             S: $crate::helper::AsDeref<D, Target = $ty>,
@@ -322,19 +336,19 @@ macro_rules! __shallow_observer {
         }
 
         #[allow(clippy::non_canonical_partial_ord_impl)]
-        impl<'ob, $($tg)* S: ?Sized, D> PartialOrd for $ob<'ob, $($sg)* S, D>
+        impl<'ob, $($tg)* S: ?Sized, D> PartialOrd for $ob<'ob, $($su)* S, D>
         where
             D: $crate::helper::Unsigned,
             S: $crate::helper::AsDeref<D, Target = $ty>,
             $state: $crate::helper::Invalidate<$ty>,
             $ty: PartialOrd,
         {
-            fn partial_cmp(&self, other: &$ob<'ob, $($sg)* S, D>) -> Option<std::cmp::Ordering> {
+            fn partial_cmp(&self, other: &$ob<'ob, $($su)* S, D>) -> Option<std::cmp::Ordering> {
                 $crate::helper::QuasiObserver::untracked_ref(self).partial_cmp($crate::helper::QuasiObserver::untracked_ref(other))
             }
         }
 
-        impl<'ob, $($tg)* S: ?Sized, D> Ord for $ob<'ob, $($sg)* S, D>
+        impl<'ob, $($tg)* S: ?Sized, D> Ord for $ob<'ob, $($su)* S, D>
         where
             D: $crate::helper::Unsigned,
             S: $crate::helper::AsDeref<D, Target = $ty>,

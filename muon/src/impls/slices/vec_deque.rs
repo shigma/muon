@@ -284,7 +284,7 @@ where
 
 shallow_observer! {
     /// Observer implementation for [`VecDeque<T>`].
-    struct VecDequeObserver<O>(use<T> VecDeque<T>, VecDequeObserverState<O>);
+    struct VecDequeObserver<O>(for<T> VecDeque<T>, VecDequeObserverState<O>);
 }
 
 impl<'ob, O, S: ?Sized, D> VecDequeObserver<'ob, O, S, D>

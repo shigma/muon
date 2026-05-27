@@ -73,7 +73,7 @@ pub trait Observer: QuasiObserver<Target = Pointer<<Self as QuasiObserver>::Head
     /// use muon::observe::Observer;
     ///
     /// let mut value = 42;
-    /// let observer = unsafe { ShallowObserver::<i32>::observe(&mut value) };
+    /// let observer = unsafe { ShallowObserver::<i32, i32>::observe(&mut value) };
     /// ```
     ///
     /// # Safety
@@ -268,9 +268,9 @@ pub trait RwObserve {
     type Spec;
 }
 
-impl<T: Snapshot + ?Sized> RwObserve for T {
+impl<T: Snapshot> RwObserve for T {
     type Observer<'ob, S, D>
-        = SnapshotObserver<'ob, S, D>
+        = SnapshotObserver<'ob, Self, S, D>
     where
         Self: 'ob,
         D: Unsigned,

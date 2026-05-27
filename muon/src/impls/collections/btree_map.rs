@@ -230,7 +230,7 @@ shallow_observer! {
     /// [`get_mut`](Self::get_mut)) require `K: Clone` because the observer maintains its own
     /// [`BTreeMap`] of cloned keys to track per-key observers independently of the observed map's
     /// internal storage.
-    struct BTreeMapObserver<K, O>(use<V> BTreeMap<K, V>, BTreeMapObserverState<K, O>);
+    struct BTreeMapObserver<K, O>(for<V> BTreeMap<K, V>, BTreeMapObserverState<K, O>);
 }
 
 impl<'ob, K, O, S: ?Sized, D> BTreeMapObserver<'ob, K, O, S, D>

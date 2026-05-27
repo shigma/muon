@@ -262,7 +262,7 @@ impl ::muon::general::SerializeSnapshot for Qux {
 #[rustfmt::skip]
 #[automatically_derived]
 impl ::muon::Observe for Qux {
-    type Observer<'ob, S, N> = ::muon::general::NoopObserver<'ob, S, N>
+    type Observer<'ob, S, N> = ::muon::general::NoopObserver<'ob, Self, S, N>
     where
         Self: 'ob,
         N: ::muon::helper::Unsigned,

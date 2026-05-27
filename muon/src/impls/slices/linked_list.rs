@@ -176,7 +176,7 @@ where
 
 shallow_observer! {
     /// Observer implementation for [`LinkedList<T>`].
-    struct LinkedListObserver<O>(use<T> LinkedList<T>, LinkedListObserverState<O>);
+    struct LinkedListObserver<O>(for<T> LinkedList<T>, LinkedListObserverState<O>);
 }
 
 /// Iterator returned by [`LinkedListObserver::iter_mut`].

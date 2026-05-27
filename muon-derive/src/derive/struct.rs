@@ -47,6 +47,7 @@ pub fn derive_observe_for_struct(
 
     let mut field_tys = vec![];
     let mut skipped_tys = vec![];
+    let mut general_predicates = vec![];
     let mut ob_field_tys = vec![];
     let mut deref_fields = vec![];
     let mut non_deref_members = vec![];
@@ -114,13 +115,14 @@ pub fn derive_observe_for_struct(
                     ::muon::observe::DefaultObserver<#ob_lt, #field_ty, #head, ::muon::helper::Succ<#depth>>
                 },
                 Some(GeneralImpl { ob_ident, .. }) => quote_spanned! { field_span =>
-                    ::muon::general::#ob_ident<#ob_lt, #head, ::muon::helper::Succ<#depth>>
+                    ::muon::general::#ob_ident<#ob_lt, #field_ty, #head, ::muon::helper::Succ<#depth>>
                 },
             };
             if !field_trivial {
                 skipped_tys.push(quote! { #field_ty });
             }
-            deref_fields.push((index, field, ob_field_ty, deref_ident, observer_ident));
+            let has_general_impl = field_meta.general_impl.is_some();
+            deref_fields.push((index, field, ob_field_ty, deref_ident, observer_ident, has_general_impl));
             ob_field_tys.push(quote! { #inner });
             ob_fields.extend(quote_spanned! { field_span =>
                 #field_vis #(#if_named #field_ident:)* #inner,
@@ -131,11 +133,18 @@ pub fn derive_observe_for_struct(
                     ::muon::observe::DefaultObserver<#ob_lt, #field_ty>
                 },
                 Some(GeneralImpl { ob_ident, .. }) => quote_spanned! { field_span =>
-                    ::muon::general::#ob_ident<#ob_lt, #field_ty>
+                    ::muon::general::#ob_ident<#ob_lt, #field_ty, #field_ty>
                 },
             };
             if !field_trivial {
-                field_tys.push(quote! { #field_ty });
+                if let Some(GeneralImpl { bounds, .. }) = &field_meta.general_impl {
+                    skipped_tys.push(quote! { #field_ty });
+                    if !bounds.is_empty() {
+                        general_predicates.push(quote! { #field_ty: #bounds });
+                    }
+                } else {
+                    field_tys.push(quote! { #field_ty });
+                }
                 ob_field_tys.push(quote! { #ob_field_ty });
             }
             non_deref_members.push(field_member.clone());
@@ -332,12 +341,12 @@ pub fn derive_observe_for_struct(
     } else if deref_fields.len() > 1 {
         return deref_fields
             .into_iter()
-            .map(|(_, _, _, ident, _)| {
+            .map(|(_, _, _, ident, _, _)| {
                 syn::Error::new(ident.span(), "only one field can be marked as `deref`").to_compile_error()
             })
             .collect();
     } else {
-        let (i, field, ob_field_ty, meta_deref_ident, observer_ident) = deref_fields.swap_remove(0);
+        let (i, field, ob_field_ty, meta_deref_ident, observer_ident, has_general_impl) = deref_fields.swap_remove(0);
         let field_ty = &field.ty;
         let field_member = match &field.ident {
             Some(ident) => quote! { #ident },
@@ -452,7 +461,11 @@ pub fn derive_observe_for_struct(
             }
         };
 
-        input_observe_predicates = quote! { #field_ty: ::muon::Observe, };
+        input_observe_predicates = if has_general_impl {
+            quote! {}
+        } else {
+            quote! { #field_ty: ::muon::Observe, }
+        };
 
         input_deref_ptr_impl = quote! {
             #[automatically_derived]
@@ -499,7 +512,8 @@ pub fn derive_observe_for_struct(
             #input_vis struct #ob_ident #ob_generics
             where
                 #(#input_predicates,)*
-                #(#field_tys: ::muon::Observe + #ob_lt),*
+                #(#field_tys: ::muon::Observe + #ob_lt,)*
+                #(#general_predicates,)*
             {
                 #ob_fields
             }
@@ -508,7 +522,8 @@ pub fn derive_observe_for_struct(
             #input_vis struct #ob_ident #ob_generics (#ob_fields)
             where
                 #(#input_predicates,)*
-                #(#field_tys: ::muon::Observe + #ob_lt),*;
+                #(#field_tys: ::muon::Observe + #ob_lt,)*
+                #(#general_predicates,)*;
         },
     };
 
@@ -550,6 +565,7 @@ pub fn derive_observe_for_struct(
         where
             #(#input_predicates,)*
             #(#field_tys: ::muon::Observe,)*
+            #(#general_predicates,)*
         {
             type Target = #deref_target;
             fn deref(&self) -> &Self::Target {
@@ -563,6 +579,7 @@ pub fn derive_observe_for_struct(
         where
             #(#input_predicates,)*
             #(#field_tys: ::muon::Observe,)*
+            #(#general_predicates,)*
         {
             fn deref_mut(&mut self) -> &mut Self::Target {
                 ::std::ptr::from_mut(self).expose_provenance();
@@ -578,6 +595,7 @@ pub fn derive_observe_for_struct(
             #(#input_predicates,)*
             #ob_quasi_predicates
             #(#field_tys: ::muon::Observe,)*
+            #(#general_predicates,)*
             #depth: ::muon::helper::Unsigned,
         {
             #assignable_impl
@@ -594,6 +612,7 @@ pub fn derive_observe_for_struct(
             #(#input_predicates,)*
             #(#skipped_tys: #ob_lt,)*
             #(#field_tys: ::muon::Observe,)*
+            #(#general_predicates,)*
             #ob_observer_predicates
             #depth: ::muon::helper::Unsigned,
         {
@@ -608,6 +627,7 @@ pub fn derive_observe_for_struct(
             #(#input_predicates,)*
             #(#skipped_tys: #ob_lt,)*
             #(#field_tys: ::muon::Observe,)*
+            #(#general_predicates,)*
             #ob_observer_predicates
             #depth: ::muon::helper::Unsigned,
             #(#ob_field_tys: ::muon::observe::SerializeObserver,)*
@@ -629,6 +649,7 @@ pub fn derive_observe_for_struct(
             #input_observe_predicates
             #(#input_predicates,)*
             #(#field_tys: ::muon::Observe,)*
+            #(#general_predicates,)*
         {
             type Observer<#ob_lt, #head, #depth> = #ob_ident #input_observer_type_generics
             where
@@ -653,6 +674,7 @@ pub fn derive_observe_for_struct(
                     #(#input_predicates,)*
                     #(#skipped_tys: #ob_lt,)*
                     #(#field_tys: ::muon::Observe,)*
+                    #(#general_predicates,)*
                     #ob_observer_predicates
                     #depth: ::muon::helper::Unsigned,
                 {
@@ -674,6 +696,7 @@ pub fn derive_observe_for_struct(
                 where
                     #(#input_predicates,)*
                     #(#field_tys: ::muon::Observe,)*
+                    #(#general_predicates,)*
                     #(#ob_field_tys: ::std::fmt::Debug,)*
                 {
                     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
@@ -690,6 +713,7 @@ pub fn derive_observe_for_struct(
                     #(#input_predicates,)*
                     #(#skipped_tys: #ob_lt,)*
                     #(#field_tys: ::muon::Observe,)*
+                    #(#general_predicates,)*
                     #ob_observer_predicates
                     #depth: ::muon::helper::Unsigned,
                 {
@@ -709,6 +733,7 @@ pub fn derive_observe_for_struct(
                     #(#input_predicates,)*
                     #(#skipped_tys: #ob_lt,)*
                     #(#field_tys: ::muon::Observe,)*
+                    #(#general_predicates,)*
                     #ob_observer_predicates
                     #depth: ::muon::helper::Unsigned,
                 {}
@@ -722,6 +747,7 @@ pub fn derive_observe_for_struct(
                     #(#input_predicates,)*
                     #(#skipped_tys: #ob_lt,)*
                     #(#field_tys: ::muon::Observe,)*
+                    #(#general_predicates,)*
                     #ob_observer_predicates
                     #depth: ::muon::helper::Unsigned,
                 {
@@ -741,6 +767,7 @@ pub fn derive_observe_for_struct(
                     #(#input_predicates,)*
                     #(#skipped_tys: #ob_lt,)*
                     #(#field_tys: ::muon::Observe,)*
+                    #(#general_predicates,)*
                     #ob_observer_predicates
                     #depth: ::muon::helper::Unsigned,
                 {

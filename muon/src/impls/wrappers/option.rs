@@ -289,7 +289,7 @@ mod tests {
 
     use super::*;
     use crate::adapter::Json;
-    use crate::general::GeneralObserver;
+    use crate::general::SnapshotObserver;
     use crate::helper::QuasiObserver;
     use crate::observe::{ObserveExt, SerializeObserverExt};
 
@@ -382,7 +382,7 @@ mod tests {
     #[test]
     fn specialization() {
         let mut opt: Option<i32> = Some(0i32);
-        let ob: GeneralObserver<_, _, _> = opt.__observe();
+        let ob: SnapshotObserver<_, _, _> = opt.__observe();
         assert_eq!(format!("{ob:?}"), r#"SnapshotObserver(Some(0))"#);
 
         let mut opt: Option<&str> = Some("");
