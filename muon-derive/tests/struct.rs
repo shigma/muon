@@ -337,3 +337,22 @@ fn boxed_struct_granular_write() {
     assert_eq!(s.inner.count, 2);
     assert_eq!(s.pair.0, "xy");
 }
+
+/// `#[repr(packed)]` structs cannot use field observers, but can be observed as a whole.
+#[derive(Serialize, Observe, Clone, Copy)]
+#[repr(C, packed)]
+#[muon(shallow)]
+struct PackedShallow {
+    a: u8,
+    b: u32,
+}
+
+#[test]
+fn packed_shallow() {
+    let mut p = PackedShallow { a: 0, b: 1 };
+    let Json(mutation) = observe!(p => {
+        p.b += 1;
+    })
+    .unwrap();
+    assert_eq!(mutation, Some(replace!(_, json!({ "a": 0, "b": 2 }))));
+}

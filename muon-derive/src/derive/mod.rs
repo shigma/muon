@@ -92,6 +92,17 @@ pub fn derive_observe(mut input: syn::DeriveInput) -> TokenStream {
         };
     }
 
+    // Field observers receive `&raw mut (*value).field` and later create references from it, which
+    // would be misaligned for packed structs. Whole-value observers (handled above) are unaffected.
+    if let Some(span) = find_repr_packed(&input.attrs) {
+        return syn::Error::new(
+            span,
+            "Observe cannot be derived for `#[repr(packed)]` types; use `#[muon(shallow)]` to observe the value as a \
+             whole",
+        )
+        .to_compile_error();
+    }
+
     match &input.data {
         syn::Data::Struct(syn::DataStruct {
             fields: syn::Fields::Named(syn::FieldsNamed { named, .. }),
@@ -106,6 +117,26 @@ pub fn derive_observe(mut input: syn::DeriveInput) -> TokenStream {
         }
         _ => syn::Error::new(input.span(), "Observe can only be derived for structs or enums").to_compile_error(),
     }
+}
+
+/// Returns the span of the `packed` / `packed(N)` argument in any `#[repr(...)]` attribute.
+fn find_repr_packed(attrs: &[syn::Attribute]) -> Option<proc_macro2::Span> {
+    let mut found = None;
+    for attr in attrs.iter().filter(|attr| attr.path().is_ident("repr")) {
+        // Malformed `repr` attributes are reported by the compiler itself.
+        let _ = attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("packed") {
+                found.get_or_insert(meta.path.span());
+            }
+            // Skip the arguments of `align(N)` / `packed(N)`.
+            if meta.input.peek(syn::token::Paren) {
+                let _content;
+                syn::parenthesized!(_content in meta.input);
+            }
+            Ok(())
+        });
+    }
+    found
 }
 
 #[derive(Default)]
