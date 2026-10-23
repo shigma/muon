@@ -24,7 +24,13 @@ jobs:
           toolchain: ${{ matrix.toolchain }}
           components: rustfmt, clippy, rust-src
 
+      # Clippy is a superset of `cargo check`; only lint on stable since beta lints are still in flux.
+      - name: Clippy lint
+        if: matrix.toolchain == 'stable'
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
       - name: Cargo check
+        if: matrix.toolchain != 'stable'
         run: cargo check --workspace --all-targets
 
       - name: Run tests
@@ -32,9 +38,6 @@ jobs:
 
       - name: Check formatting
         run: cargo fmt --all -- --check
-
-      - name: Clippy lint
-        run: cargo clippy -- -D warnings
 
   features:
     name: Feature Check (${{ matrix.features || 'none' }})
@@ -64,6 +67,9 @@ jobs:
 
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          # Override the default `-D warnings`: feature-gated code paths leave unused items behind.
+          rustflags: ""
 
       - name: Cargo check
         run: cargo check -p muon --no-default-features --features "${{ matrix.features }}"
