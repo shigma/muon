@@ -38,12 +38,28 @@ use crate::helper::unsigned::{Succ, Unsigned, Zero};
 /// without creating intermediate references, which is needed for
 /// [`Observer::relocate`](crate::observe::Observer::relocate) to avoid Stacked Borrows retagging.
 ///
-/// # Safety
+/// ## Safety
 ///
-/// The returned pointer from [`deref_ptr`](DerefPtr::deref_ptr) must point to the same location
-/// as [`Deref::deref`] would return. Additionally, it must NOT retag the target memory during
-/// its construction. It is acceptable to retag `Self` (e.g., by creating `&Self` to read metadata)
-/// as long as `Self` and `Target` do not overlap in memory.
+/// Given a valid `this`, the pointer returned by [`deref_ptr`](DerefPtr::deref_ptr) must:
+///
+/// - point to a valid, initialized `Self::Target` (with matching metadata, e.g. slice length) that
+///   stays valid as long as `*this` is neither moved nor mutated;
+/// - carry provenance derived from `this` (or from the owned allocation `Self` manages), so that
+///   sub-place pointers computed from it are as usable as the source permits;
+/// - be obtained without retagging the target memory. It is acceptable to retag `Self` (e.g., by
+///   creating `&Self` to read metadata) as long as `Self` and `Target` do not overlap in memory.
+///
+/// ## Consistency with `Deref`
+///
+/// The returned pointer is expected to point to the same location as [`Deref::deref`]. This is a
+/// **logic** requirement, not a safety one, analogous to `Hash` / `Eq` consistency for `HashMap`:
+/// if it is violated, observers may emit wrong mutations or panic, but must not cause undefined
+/// behavior. Code that consumes `deref_ptr` must therefore not rely on this agreement for memory
+/// safety, e.g. it must not use a length read through one path to perform unchecked accesses
+/// through the other.
+///
+/// This matters for `#[muon(deref)]`, which derives this trait by returning the annotated field
+/// while the `Deref` impl is written by the user in safe code.
 pub unsafe trait DerefPtr: Deref {
     /// Returns a raw mutable pointer to the deref target.
     ///

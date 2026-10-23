@@ -458,6 +458,10 @@ pub fn derive_observe_for_struct(
             quote! { #field_ty: ::muon::Observe, }
         };
 
+        // The user's `Deref` is expected to return this same field. That agreement is a logic
+        // contract of `#[muon(deref)]` (see the `DerefPtr` docs), not part of `DerefPtr`'s safety
+        // requirements, so this impl is sound however `Deref` is written: the field type equals
+        // `Self::Target` by type checking, and the pointer is derived from `this`.
         input_deref_ptr_impl = quote! {
             #[automatically_derived]
             unsafe impl #input_impl_generics ::muon::helper::DerefPtr
