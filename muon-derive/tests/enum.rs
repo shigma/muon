@@ -364,3 +364,87 @@ fn variant_rename_all_inner_mutation() {
     let Json(mutation) = ob.flush().unwrap();
     assert_eq!(mutation, Some(replace!(Bar.BAR_BAZ, json!(2))));
 }
+
+#[derive(Serialize, Observe)]
+#[muon(expose)]
+enum Cached {
+    A {
+        #[serde(skip)]
+        cache: String,
+        n: u32,
+    },
+    B,
+}
+
+/// After the containing `Vec` reallocates, the `Pointer` of a skipped variant field must be
+/// relocated onto the new element (and stay writable, which Miri checks).
+#[test]
+fn skipped_variant_field_after_relocate() {
+    let mut v = vec![Cached::A {
+        cache: String::new(),
+        n: 0,
+    }];
+    let mut ob = v.__observe();
+    let _ = &mut ob[0];
+    for _ in 0..64 {
+        ob.push(Cached::B);
+    }
+    match &mut ob[0].variant {
+        CachedObserverVariant::A { cache, n } => {
+            cache.push_str("xy");
+            *n.tracked_mut() += 1;
+        }
+        _ => unreachable!(),
+    }
+    let Json(mutation) = ob.flush().unwrap();
+    let mut expected = vec![json!({ "A": { "n": 1 } })];
+    expected.extend(std::iter::repeat_n(json!("B"), 64));
+    assert_eq!(mutation, Some(replace!(_, json!(expected))));
+    drop(ob);
+    let Cached::A { cache, n } = &v[0] else { unreachable!() };
+    assert_eq!((cache.as_str(), *n), ("xy", 1));
+}
+
+#[derive(Serialize, Observe)]
+#[muon(expose)]
+enum OnlySkipped {
+    A {
+        #[serde(skip)]
+        cache: String,
+    },
+    #[allow(dead_code)]
+    B(u32),
+}
+
+#[derive(Serialize, Observe)]
+struct BoxedOnlySkipped {
+    inner: Box<OnlySkipped>,
+}
+
+/// Relocating onto a value that was never observed: the enum sits behind a `Box`, so the enclosing
+/// observer only exposes the box slot, and the variant has no non-skipped sibling whose pointer
+/// would expose the heap allocation. The skipped field's `Pointer` must then carry writable
+/// provenance itself (checked by Miri). Reached through the stale-observer path of `swap_remove` +
+/// `flush`.
+#[test]
+fn skipped_variant_field_relocated_onto_unobserved_box() {
+    let new = || BoxedOnlySkipped {
+        inner: Box::new(OnlySkipped::A { cache: String::new() }),
+    };
+    let mut v: Vec<BoxedOnlySkipped> = vec![];
+    let mut ob = v.__observe();
+    ob.push(new());
+    ob.push(new());
+    let _ = &mut ob[0].inner.variant;
+    ob.swap_remove(0);
+    let _ = ob.flush::<Json>();
+    match &mut ob[0].inner.variant {
+        OnlySkippedObserverVariant::A { cache } => cache.push_str("xy"),
+        _ => unreachable!(),
+    }
+    drop(ob);
+    let OnlySkipped::A { cache } = &*v[0].inner else {
+        unreachable!()
+    };
+    assert_eq!(cache, "xy");
+}

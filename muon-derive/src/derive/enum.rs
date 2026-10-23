@@ -145,7 +145,10 @@ pub fn derive_observe_for_enum(
                     ),
                 });
                 relocate_stmts.extend(quote_spanned! { field_span =>
-                    ::muon::helper::Pointer::set(#ob_ident, #value_ident);
+                    ::muon::helper::Pointer::set_unchecked(
+                        #ob_ident,
+                        __ptr.with_addr(#value_ident as *const _ as usize).cast(),
+                    );
                 });
                 if field_ident.is_none() {
                     flush_idents.push(quote! { _ });

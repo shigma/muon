@@ -117,7 +117,10 @@ const _: () = {
             unsafe {
                 match (self, &*__ptr) {
                     (Self::A(u0), Foo::A(v0)) => {
-                        ::muon::helper::Pointer::set(u0, v0);
+                        ::muon::helper::Pointer::set_unchecked(
+                            u0,
+                            __ptr.with_addr(v0 as *const _ as usize).cast(),
+                        );
                     }
                     (Self::B(u0, u1, u2), Foo::B(v0, v1, v2)) => {
                         ::muon::observe::Observer::relocate(
@@ -134,7 +137,10 @@ const _: () = {
                         );
                     }
                     (Self::C { bar: u0, qux: u1 }, Foo::C { bar: v0, qux: v1 }) => {
-                        ::muon::helper::Pointer::set(u0, v0);
+                        ::muon::helper::Pointer::set_unchecked(
+                            u0,
+                            __ptr.with_addr(v0 as *const _ as usize).cast(),
+                        );
                         ::muon::observe::Observer::relocate(
                             u1,
                             __ptr.with_addr(v1 as *const _ as usize).cast(),
