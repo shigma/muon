@@ -16,76 +16,33 @@ pub fn derive_snapshot(input: &syn::DeriveInput) -> TokenStream {
     snapshot.ident = snap_ident.clone();
 
     let where_predicates = &mut snapshot.generics.make_where_clause().predicates;
+    // Every field of the snapshot type stores `<T as Snapshot>::Snapshot`, which may differ from `T`
+    // (e.g. `String` → `Box<str>`, `Vec<T>` → `Box<[T]>`). Only fields mentioning generic parameters
+    // need an explicit bound; concrete field types are checked directly.
+    let mut rewrite_fields = |fields: &mut syn::Fields| {
+        for field in fields.iter_mut() {
+            field.attrs = vec![];
+            let field_ty = &field.ty;
+            if GenericsDetector::detect(field_ty, &input.generics) {
+                where_predicates.push(parse_quote! {
+                    #field_ty: ::muon::general::SerializeSnapshot
+                });
+            }
+            field.ty = parse_quote! {
+                <#field_ty as ::muon::general::Snapshot>::Snapshot
+            };
+        }
+    };
     match &mut snapshot.data {
-        syn::Data::Struct(data_struct) => match &mut data_struct.fields {
-            syn::Fields::Named(fields) => {
-                for field in &mut fields.named {
-                    field.attrs = vec![];
-                    if GenericsDetector::detect(&field.ty, &input.generics) {
-                        let field_ty = &field.ty;
-                        where_predicates.push(parse_quote! {
-                            #field_ty: ::muon::general::SerializeSnapshot
-                        });
-                        field.ty = parse_quote! {
-                            <#field_ty as ::muon::general::Snapshot>::Snapshot
-                        };
-                    }
-                }
-            }
-            syn::Fields::Unnamed(fields) => {
-                for field in &mut fields.unnamed {
-                    field.attrs = vec![];
-                    if GenericsDetector::detect(&field.ty, &input.generics) {
-                        let field_ty = &field.ty;
-                        where_predicates.push(parse_quote! {
-                            #field_ty: ::muon::general::SerializeSnapshot
-                        });
-                        field.ty = parse_quote! {
-                            <#field_ty as ::muon::general::Snapshot>::Snapshot
-                        };
-                    }
-                }
-            }
-            syn::Fields::Unit => {}
-        },
+        syn::Data::Struct(data_struct) => rewrite_fields(&mut data_struct.fields),
         syn::Data::Enum(data_enum) => {
             for variant in &mut data_enum.variants {
                 variant.attrs = vec![];
-                match &mut variant.fields {
-                    syn::Fields::Named(fields) => {
-                        for field in &mut fields.named {
-                            field.attrs = vec![];
-                            if GenericsDetector::detect(&field.ty, &input.generics) {
-                                let field_ty = &field.ty;
-                                where_predicates.push(parse_quote! {
-                                    #field_ty: ::muon::general::SerializeSnapshot
-                                });
-                                field.ty = parse_quote! {
-                                    <#field_ty as ::muon::general::Snapshot>::Snapshot
-                                };
-                            }
-                        }
-                    }
-                    syn::Fields::Unnamed(fields) => {
-                        for field in &mut fields.unnamed {
-                            field.attrs = vec![];
-                            if GenericsDetector::detect(&field.ty, &input.generics) {
-                                let field_ty = &field.ty;
-                                where_predicates.push(parse_quote! {
-                                    #field_ty: ::muon::general::SerializeSnapshot
-                                });
-                                field.ty = parse_quote! {
-                                    <#field_ty as ::muon::general::Snapshot>::Snapshot
-                                };
-                            }
-                        }
-                    }
-                    syn::Fields::Unit => {}
-                }
+                rewrite_fields(&mut variant.fields);
             }
         }
         syn::Data::Union(_data_union) => {
-            return syn::Error::new(input.span(), "PartialEq cannot be derived for unions").to_compile_error();
+            return syn::Error::new(input.span(), "Snapshot cannot be derived for unions").to_compile_error();
         }
     }
 
@@ -143,9 +100,10 @@ pub fn derive_snapshot(input: &syn::DeriveInput) -> TokenStream {
                     let index = syn::Index::from(i);
                     let span = field.span();
                     let temp = &temp_idents[i];
+                    let segment = proc_macro2::Literal::usize_suffixed(i);
                     quote_spanned! { span =>
                         let #temp = ::muon::general::SerializeSnapshot::flush(&self.#index, snapshot.#index)
-                            .with_prefix(#i as u64);
+                            .with_prefix(#segment);
                     }
                 });
                 (
@@ -267,9 +225,10 @@ pub fn derive_snapshot(input: &syn::DeriveInput) -> TokenStream {
                             let self_ident = &self_idents[i];
                             let snap_ident = &snap_idents[i];
                             let temp = &temp_idents[i];
+                            let segment = proc_macro2::Literal::usize_suffixed(i);
                             quote_spanned! { span =>
                                 let #temp = ::muon::general::SerializeSnapshot::flush(#self_ident, #snap_ident)
-                                    .with_prefix(#i as u64);
+                                    .with_prefix(#segment);
                             }
                         });
                         (
