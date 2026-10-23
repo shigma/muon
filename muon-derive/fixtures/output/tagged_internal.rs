@@ -141,7 +141,7 @@ const _: () = {
                     mutations.extend(mutations_qux);
                     mutations
                 }
-                _ => panic!("flat_flush can only be called on structs and maps"),
+                Self::__Unknown => ::muon::Mutations::new(),
             }
         }
     }

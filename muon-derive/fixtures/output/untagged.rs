@@ -137,7 +137,7 @@ const _: () = {
                     }
                     let mut mutations = ::muon::Mutations::new()
                         .with_capacity(!mutations_bar.is_empty() as usize);
-                    mutations.insert("bar", mutations_bar);
+                    mutations.insert("BAR", mutations_bar);
                     mutations
                 }
                 Self::__Unknown => ::muon::Mutations::new(),
@@ -151,9 +151,10 @@ const _: () = {
                     let mut mutations = ::muon::Mutations::new()
                         .with_capacity(!mutations_bar.is_empty() as usize)
                         .with_replace(mutations_bar.is_replace());
-                    mutations.insert("bar", mutations_bar);
+                    mutations.insert("BAR", mutations_bar);
                     mutations
                 }
+                Self::__Unknown => ::muon::Mutations::new(),
                 _ => panic!("flat_flush can only be called on structs and maps"),
             }
         }

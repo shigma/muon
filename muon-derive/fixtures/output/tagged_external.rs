@@ -210,6 +210,7 @@ const _: () = {
                     mutations.insert("QwQ", mutations_qux);
                     mutations.with_prefix("OwO")
                 }
+                Self::__Unknown => ::muon::Mutations::new(),
                 _ => panic!("flat_flush can only be called on structs and maps"),
             }
         }

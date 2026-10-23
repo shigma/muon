@@ -275,3 +275,92 @@ fn tuple_variant_multi_field() {
         Some(batch!(Pair, replace!(0, json!(42)), append!(1, json!("!"))))
     );
 }
+
+#[derive(Serialize, Observe)]
+#[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
+enum RefData {
+    ToolOpen,
+    ToolSearch { search_urls: Vec<String> },
+}
+
+#[derive(Serialize, Observe)]
+struct RefView {
+    id: u32,
+    #[serde(flatten)]
+    data: RefData,
+}
+
+#[test]
+fn flatten_unit_variant_no_change() {
+    let mut v = RefView {
+        id: 1,
+        data: RefData::ToolOpen,
+    };
+    let Json(mutation) = observe!(v => {}).unwrap();
+    assert_eq!(mutation, None);
+}
+
+#[test]
+fn flatten_field_variant_flush_twice() {
+    let mut v = RefView {
+        id: 1,
+        data: RefData::ToolSearch { search_urls: vec![] },
+    };
+    let mut ob = v.__observe();
+    let Json(mutation) = ob.flush().unwrap();
+    assert_eq!(mutation, None);
+    let Json(mutation) = ob.flush().unwrap();
+    assert_eq!(mutation, None);
+}
+
+#[test]
+fn flatten_field_variant_inner_mutation() {
+    let mut v = RefView {
+        id: 1,
+        data: RefData::ToolSearch {
+            search_urls: vec!["a".into()],
+        },
+    };
+    let mut ob = v.__observe();
+    if let RefData::ToolSearch { search_urls } = &mut ob.untracked_mut().data {
+        search_urls.push("b".into());
+    }
+    let Json(mutation) = ob.flush().unwrap();
+    assert_eq!(mutation, Some(append!(search_urls, json!(["b"]))));
+}
+
+#[derive(Serialize, Observe)]
+#[serde(rename_all_fields = "camelCase")]
+enum RenameFields {
+    Foo {
+        foo_bar: i32,
+        other: i32,
+    },
+    #[serde(rename_all = "UPPERCASE")]
+    Bar {
+        bar_baz: i32,
+        other: i32,
+    },
+}
+
+#[test]
+fn rename_all_fields_inner_mutation() {
+    let mut r = RenameFields::Foo { foo_bar: 1, other: 0 };
+    let mut ob = r.__observe();
+    if let RenameFields::Foo { foo_bar, .. } = ob.untracked_mut() {
+        *foo_bar = 2;
+    }
+    let Json(mutation) = ob.flush().unwrap();
+    assert_eq!(mutation, Some(replace!(Foo.fooBar, json!(2))));
+}
+
+#[test]
+fn variant_rename_all_inner_mutation() {
+    let mut r = RenameFields::Bar { bar_baz: 1, other: 0 };
+    let mut ob = r.__observe();
+    if let RenameFields::Bar { bar_baz, .. } = ob.untracked_mut() {
+        *bar_baz = 2;
+    }
+    let Json(mutation) = ob.flush().unwrap();
+    assert_eq!(mutation, Some(replace!(Bar.BAR_BAZ, json!(2))));
+}

@@ -157,6 +157,7 @@ const _: () = {
                     mutations.insert("bar", mutations_bar);
                     mutations.with_prefix("data")
                 }
+                Self::__Unknown => ::muon::Mutations::new(),
                 _ => panic!("flat_flush can only be called on structs and maps"),
             }
         }

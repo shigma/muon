@@ -7,7 +7,7 @@ use syn::spanned::Spanned;
 use syn::visit::Visit;
 use syn::{parse_quote, parse_quote_spanned};
 
-use crate::derive::meta::{AttributeKind, DeriveKind, GeneralImpl, ObserveMeta};
+use crate::derive::meta::{AttributeKind, DeriveKind, GeneralImpl, ObserveMeta, RenameRule};
 use crate::derive::{FMT_TRAITS, GenericsDetector, GenericsVisitor};
 
 pub fn derive_observe_for_enum(
@@ -44,6 +44,7 @@ pub fn derive_observe_for_enum(
     let mut general_predicates = vec![];
     let mut has_variant = false;
     let mut has_initial = false;
+    let mut has_non_flat_variant = false;
     for variant in variants {
         let variant_ident = &variant.ident;
         let variant_name = variant.ident.to_string();
@@ -77,6 +78,11 @@ pub fn derive_observe_for_enum(
         } else {
             let segment = input_meta.serde.rename_all.apply(&variant_name);
             Some(quote! { #segment })
+        };
+        let field_rename_rule = if variant_meta.serde.rename_all != RenameRule::None {
+            variant_meta.serde.rename_all
+        } else {
+            input_meta.serde.rename_all_fields
         };
 
         let if_named: Vec<TokenStream> = match &variant.fields {
@@ -190,7 +196,7 @@ pub fn derive_observe_for_enum(
                     field_name = field_name[2..].to_string();
                 }
                 mutation_ident = syn::Ident::new(&format!("mutations_{field_name}"), field_span);
-                let segment = input_meta.serde.rename_all.apply(&field_name);
+                let segment = field_rename_rule.apply(&field_name);
                 default_segment = quote! { #segment };
             } else {
                 mutation_ident = syn::Ident::new(&format!("mutations_{index}"), field_span);
@@ -340,6 +346,8 @@ pub fn derive_observe_for_enum(
                     variant_flat_flush_arms.extend(quote! {
                         Self::#variant_ident(#(#flush_idents),*) => #variant_flat_flush_expr,
                     });
+                } else {
+                    has_non_flat_variant = true;
                 }
             }
             syn::Fields::Unit => {
@@ -379,8 +387,13 @@ pub fn derive_observe_for_enum(
         Self::__Unknown => ::muon::Mutations::new(),
     });
     variant_flat_flush_arms.extend(quote! {
-        _ => panic!("flat_flush can only be called on structs and maps"),
+        Self::__Unknown => ::muon::Mutations::new(),
     });
+    if has_non_flat_variant {
+        variant_flat_flush_arms.extend(quote! {
+            _ => panic!("flat_flush can only be called on structs and maps"),
+        });
+    }
 
     let ob_flush_prefix_stmt = if has_initial {
         quote! {
