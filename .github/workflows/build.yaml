@@ -35,3 +35,35 @@ jobs:
 
       - name: Clippy lint
         run: cargo clippy -- -D warnings
+
+  features:
+    name: Feature Check (${{ matrix.features || 'none' }})
+    runs-on: ubuntu-latest
+
+    # `cargo test` unifies features with dev-dependencies (which enable defaults), so non-default
+    # feature sets must be checked with a plain `cargo check` on the library target.
+    strategy:
+      matrix:
+        features:
+          - ""
+          - append
+          - truncate
+          - delete
+          - derive
+          - append,truncate
+          - append,delete
+          - truncate,delete
+          - append,chrono,derive,json,uuid
+          - chrono,derive,indexmap,json,url,utf8,uuid,yaml
+          - append,truncate,utf16
+      fail-fast: false
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v5
+
+      - name: Install Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Cargo check
+        run: cargo check -p muon --no-default-features --features "${{ matrix.features }}"
