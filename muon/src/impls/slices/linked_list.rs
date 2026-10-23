@@ -109,9 +109,11 @@ where
         }
 
         let mut mutations = Mutations::new();
+        #[cfg(feature = "truncate")]
         if back_truncate > 0 {
             mutations.extend(MutationKind::Truncate(back_truncate));
         }
+        #[cfg(feature = "append")]
         if back_append > 0 {
             mutations.extend(Mutations::append_owned(AppendTail {
                 list: list as *const _,

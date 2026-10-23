@@ -242,9 +242,11 @@ where
 
         // Phase 2: Build Truncate/Append.
         let mut mutations = Mutations::new();
+        #[cfg(feature = "truncate")]
         if back_truncate_len > 0 {
             mutations.extend(MutationKind::Truncate(back_truncate_len));
         }
+        #[cfg(feature = "append")]
         if back_append_len > 0 {
             mutations.extend(Mutations::append_owned(AppendTail {
                 deque: deque as *const _,
