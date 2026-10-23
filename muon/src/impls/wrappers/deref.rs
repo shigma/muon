@@ -273,4 +273,19 @@ mod test {
         let Json(mutation) = ob.flush().unwrap();
         assert_eq!(mutation, Some(replace!(_, json!("42"))));
     }
+
+    /// Granular writes into a tuple behind a `Box` go through field pointers derived from
+    /// `DerefPtr for Box`; they must carry write permission (checked by Miri).
+    #[test]
+    fn test_box_tuple_granular_write() {
+        let mut value = Box::new((String::from("a"), 1i32));
+        let mut ob = value.__observe();
+        ob.0.push_str("b");
+        let Json(mutation) = ob.flush().unwrap();
+        assert_eq!(mutation, Some(append!(0, json!("b"))));
+        ob.1 += 1;
+        let Json(mutation) = ob.flush().unwrap();
+        assert_eq!(mutation, Some(replace!(1, json!(2))));
+        assert_eq!(*value, (String::from("ab"), 2));
+    }
 }

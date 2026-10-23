@@ -67,7 +67,7 @@ unsafe impl<T: ?Sized> DerefPtr for &mut T {
 
 unsafe impl<T: ?Sized> DerefPtr for Box<T> {
     unsafe fn deref_ptr(this: *mut Self) -> *mut Self::Target {
-        unsafe { (&*this).deref() as *const T as *mut T }
+        unsafe { &raw mut **this }
     }
 }
 

@@ -295,3 +295,45 @@ fn vec_field_append() {
     .unwrap();
     assert_eq!(mutation, Some(append!(items, json!([3]))));
 }
+
+#[derive(Serialize, Observe)]
+struct BoxedInner {
+    name: String,
+    count: u32,
+}
+
+#[derive(Serialize, Observe)]
+struct BoxedOuter {
+    inner: Box<BoxedInner>,
+    pair: Box<(String,)>,
+}
+
+/// Field pointers of a derived struct behind a `Box` are derived from `DerefPtr for Box`; granular
+/// writes through them must carry write permission (checked by Miri).
+#[test]
+fn boxed_struct_granular_write() {
+    let mut s = BoxedOuter {
+        inner: Box::new(BoxedInner {
+            name: "a".into(),
+            count: 1,
+        }),
+        pair: Box::new(("x".into(),)),
+    };
+    let Json(mutation) = observe!(s => {
+        s.inner.name.push_str("b");
+        s.inner.count += 1;
+        s.pair.0.push_str("y");
+    })
+    .unwrap();
+    assert_eq!(
+        mutation,
+        Some(batch!(
+            _,
+            batch!(inner, append!(name, json!("b")), replace!(count, json!(2))),
+            append!(pair.0, json!("y"))
+        ))
+    );
+    assert_eq!(s.inner.name, "ab");
+    assert_eq!(s.inner.count, 2);
+    assert_eq!(s.pair.0, "xy");
+}
