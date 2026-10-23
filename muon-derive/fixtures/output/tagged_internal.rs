@@ -78,13 +78,16 @@ const _: () = {
                 }
             }
         }
-        fn flush(&mut self, __ptr: *const Foo<N>) -> ::muon::Mutations
+        fn flush(&mut self, __ptr: *const Foo<N>) -> ::muon::Mutations<'_>
         where
             Foo<N>: ::muon::helper::serde::Serialize + 'static,
         {
             match self {
                 Self::A(u0) => ::muon::observe::SerializeObserver::flush(u0),
                 Self::C { bar, qux } => {
+                    let value_bar: *const _ = ::muon::helper::QuasiObserver::untracked_ref(
+                        bar,
+                    );
                     let mutations_bar = ::muon::observe::SerializeObserver::flush(bar);
                     let mutations_qux = ::muon::observe::SerializeObserver::flat_flush(
                         qux,
@@ -97,9 +100,7 @@ const _: () = {
                             !mutations_bar.is_empty() as usize + mutations_qux.len(),
                         );
                     if !mutations_bar.is_empty()
-                        && String::is_empty(
-                            ::muon::helper::QuasiObserver::untracked_ref(bar),
-                        )
+                        && String::is_empty(unsafe { &*value_bar })
                     {
                         mutations.insert("bar", ::muon::Mutations::delete());
                     } else {
@@ -111,13 +112,16 @@ const _: () = {
                 Self::__Unknown => ::muon::Mutations::new(),
             }
         }
-        fn flat_flush(&mut self, __ptr: *const Foo<N>) -> ::muon::Mutations
+        fn flat_flush(&mut self, __ptr: *const Foo<N>) -> ::muon::Mutations<'_>
         where
             Foo<N>: ::muon::helper::serde::Serialize + 'static,
         {
             match self {
                 Self::A(u0) => ::muon::observe::SerializeObserver::flat_flush(u0),
                 Self::C { bar, qux } => {
+                    let value_bar: *const _ = ::muon::helper::QuasiObserver::untracked_ref(
+                        bar,
+                    );
                     let mutations_bar = ::muon::observe::SerializeObserver::flush(bar);
                     let mutations_qux = ::muon::observe::SerializeObserver::flat_flush(
                         qux,
@@ -130,9 +134,7 @@ const _: () = {
                             mutations_bar.is_replace() && mutations_qux.is_replace(),
                         );
                     if !mutations_bar.is_empty()
-                        && String::is_empty(
-                            ::muon::helper::QuasiObserver::untracked_ref(bar),
-                        )
+                        && String::is_empty(unsafe { &*value_bar })
                     {
                         mutations.insert("bar", ::muon::Mutations::delete());
                     } else {
@@ -211,7 +213,7 @@ const _: () = {
         S: ::muon::helper::AsDeref<_N, Target = Foo<N>>,
         _N: ::muon::helper::Unsigned,
     {
-        fn flush(this: &mut Self) -> ::muon::Mutations {
+        fn flush(this: &mut Self) -> ::muon::Mutations<'_> {
             let value = this.ptr.as_deref();
             if !this.mutated {
                 return this.variant.flush(value);
@@ -220,7 +222,7 @@ const _: () = {
             this.variant = FooObserverVariant::__Unknown;
             ::muon::Mutations::replace(this.as_deref())
         }
-        fn flat_flush(this: &mut Self) -> ::muon::Mutations {
+        fn flat_flush(this: &mut Self) -> ::muon::Mutations<'_> {
             let value = this.ptr.as_deref();
             if !this.mutated {
                 return this.variant.flat_flush(value);
@@ -255,7 +257,7 @@ impl ::muon::general::Snapshot for Qux {
 #[rustfmt::skip]
 #[automatically_derived]
 impl ::muon::general::SerializeSnapshot for Qux {
-    fn flush(&self, _snapshot: ()) -> ::muon::Mutations {
+    fn flush(&self, _snapshot: ()) -> ::muon::Mutations<'_> {
         ::muon::Mutations::new()
     }
 }

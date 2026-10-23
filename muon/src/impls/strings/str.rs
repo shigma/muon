@@ -223,7 +223,7 @@ impl Snapshot for str {
 }
 
 impl SerializeSnapshot for str {
-    fn flush(&self, snapshot: Box<str>) -> Mutations {
+    fn flush(&self, snapshot: Box<str>) -> Mutations<'_> {
         if self == &*snapshot {
             return Mutations::new();
         }

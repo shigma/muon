@@ -135,11 +135,11 @@ where
     S: AsDeref<D, Target: Newtype<Inner = O::Head>>,
     O: SerializeObserver<InnerDepth = Zero, Head: Sized>,
 {
-    fn flush(this: &mut Self) -> Mutations {
+    fn flush(this: &mut Self) -> Mutations<'_> {
         SerializeObserver::flush(&mut this.0)
     }
 
-    fn flat_flush(this: &mut Self) -> Mutations {
+    fn flat_flush(this: &mut Self) -> Mutations<'_> {
         SerializeObserver::flat_flush(&mut this.0)
     }
 }
@@ -338,7 +338,7 @@ macro_rules! impl_newtype {
         }
 
         impl<T: SerializeSnapshot> SerializeSnapshot for $wrapper<T> {
-            fn flush(&self, snapshot: Self::Snapshot) -> Mutations {
+            fn flush(&self, snapshot: Self::Snapshot) -> Mutations<'_> {
                 self.0.flush(snapshot)
             }
         }

@@ -99,6 +99,7 @@ pub fn derive_observe_for_enum(
         let mut relocate_stmts = quote! {};
         let mut mutation_idents = vec![];
         let mut flush_field_stmts = quote! {};
+        let mut flush_value_stmts = quote! {};
         let mut flush_mutation_stmts = quote! {};
         let mut flush_capacity = vec![];
         let mut has_skipped = false;
@@ -192,6 +193,7 @@ pub fn derive_observe_for_enum(
             });
 
             let mutation_ident;
+            let skip_value_ident;
             let default_segment;
             if let Some(field_ident) = &field_ident {
                 let mut field_name = field_ident.to_string();
@@ -199,10 +201,12 @@ pub fn derive_observe_for_enum(
                     field_name = field_name[2..].to_string();
                 }
                 mutation_ident = syn::Ident::new(&format!("mutations_{field_name}"), field_span);
+                skip_value_ident = syn::Ident::new(&format!("value_{field_name}"), field_span);
                 let segment = field_rename_rule.apply(&field_name);
                 default_segment = quote! { #segment };
             } else {
                 mutation_ident = syn::Ident::new(&format!("mutations_{index}"), field_span);
+                skip_value_ident = syn::Ident::new(&format!("value_{index}"), field_span);
                 default_segment = quote! { #index };
             }
 
@@ -216,8 +220,11 @@ pub fn derive_observe_for_enum(
                 if cfg!(feature = "delete")
                     && let Some(path) = field_meta.serde.skip_serializing_if
                 {
+                    flush_value_stmts.extend(quote_spanned! { field_span =>
+                        let #skip_value_ident: *const _ = ::muon::helper::QuasiObserver::untracked_ref(#flush_ident);
+                    });
                     flush_mutation_stmts.extend(quote_spanned! { field_span =>
-                        if !#mutation_ident.is_empty() && #path(::muon::helper::QuasiObserver::untracked_ref(#flush_ident)) {
+                        if !#mutation_ident.is_empty() && #path(unsafe { &*#skip_value_ident }) {
                             mutations.extend(#mutation_ident.into_delete());
                         } else {
                             mutations.extend(#mutation_ident);
@@ -243,8 +250,11 @@ pub fn derive_observe_for_enum(
                 if cfg!(feature = "delete")
                     && let Some(path) = field_meta.serde.skip_serializing_if
                 {
+                    flush_value_stmts.extend(quote_spanned! { field_span =>
+                        let #skip_value_ident: *const _ = ::muon::helper::QuasiObserver::untracked_ref(#flush_ident);
+                    });
                     flush_mutation_stmts.extend(quote_spanned! { field_span =>
-                        if !#mutation_ident.is_empty() && #path(::muon::helper::QuasiObserver::untracked_ref(#flush_ident)) {
+                        if !#mutation_ident.is_empty() && #path(unsafe { &*#skip_value_ident }) {
                             mutations.insert(#segment, ::muon::Mutations::delete());
                         } else {
                             mutations.insert(#segment, #mutation_ident);
@@ -273,6 +283,7 @@ pub fn derive_observe_for_enum(
             }
         } else {
             quote! {{
+                #flush_value_stmts
                 #flush_field_stmts
                 if #(#mutation_idents.is_replace())&&* {
                     return ::muon::Mutations::replace(unsafe { &*__ptr });
@@ -289,6 +300,7 @@ pub fn derive_observe_for_enum(
                     Some(quote! { ::muon::Mutations::new() })
                 } else {
                     Some(quote! {{
+                        #flush_value_stmts
                         #flush_field_stmts
                         let mut mutations = ::muon::Mutations::new()
                             .with_capacity(#(#flush_capacity)+*)
@@ -519,7 +531,7 @@ pub fn derive_observe_for_enum(
                 }
             }
 
-            fn flush(&mut self, __ptr: *const #input_ident #input_type_generics) -> ::muon::Mutations
+            fn flush(&mut self, __ptr: *const #input_ident #input_type_generics) -> ::muon::Mutations<'_>
             where
                 #input_serialize_predicates
                 #(#ob_field_tys: ::muon::observe::SerializeObserver,)*
@@ -529,7 +541,7 @@ pub fn derive_observe_for_enum(
                 }
             }
 
-            fn flat_flush(&mut self, __ptr: *const #input_ident #input_type_generics) -> ::muon::Mutations
+            fn flat_flush(&mut self, __ptr: *const #input_ident #input_type_generics) -> ::muon::Mutations<'_>
             where
                 #input_serialize_predicates
                 #(#ob_field_tys: ::muon::observe::SerializeObserver,)*
@@ -659,7 +671,7 @@ pub fn derive_observe_for_enum(
             #depth: ::muon::helper::Unsigned,
             #(#ob_field_tys: ::muon::observe::SerializeObserver,)*
         {
-            fn flush(this: &mut Self) -> ::muon::Mutations {
+            fn flush(this: &mut Self) -> ::muon::Mutations<'_> {
                 let value = this.ptr.as_deref();
                 #ob_flush_prefix_stmt
                 #(#if_has_variant
@@ -672,7 +684,7 @@ pub fn derive_observe_for_enum(
                 #ob_flush_suffix_stmt
             }
 
-            fn flat_flush(this: &mut Self) -> ::muon::Mutations {
+            fn flat_flush(this: &mut Self) -> ::muon::Mutations<'_> {
                 let value = this.ptr.as_deref();
                 #ob_flush_prefix_stmt
                 #(#if_has_variant

@@ -59,7 +59,7 @@ impl ObserverState<Path> for PathRoObserverState {
 }
 
 impl SerializeObserverState<Path> for PathRoObserverState {
-    fn flush(&mut self, value: &Path) -> Mutations {
+    fn flush<'a>(&'a mut self, value: &'a Path) -> Mutations<'a> {
         let (old_addr, old_len) = match self.raw_parts.take() {
             None => return Mutations::new(),
             Some(None) => return Mutations::replace(value),
@@ -120,7 +120,7 @@ impl Snapshot for Path {
 }
 
 impl SerializeSnapshot for Path {
-    fn flush(&self, snapshot: Option<Box<str>>) -> Mutations {
+    fn flush(&self, snapshot: Option<Box<str>>) -> Mutations<'_> {
         match (self.to_str(), snapshot) {
             (Some(s), Some(snapshot)) => s.flush(snapshot),
             (None, None) => Mutations::new(),

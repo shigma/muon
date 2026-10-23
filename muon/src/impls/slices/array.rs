@@ -60,7 +60,7 @@ where
     O: SerializeObserver<InnerDepth = Zero>,
     O::Head: Serialize + Sized + 'static,
 {
-    fn flush(&mut self, ptr: &mut Pointer<S>) -> Mutations {
+    fn flush<'a>(&'a mut self, ptr: &'a mut Pointer<S>) -> Mutations<'a> {
         let slice = (**ptr).as_deref();
         let mut mutations = Mutations::new();
         let mut is_replace = true;
@@ -152,7 +152,7 @@ where
     O: SerializeObserver<InnerDepth = Zero, Head = T>,
     T: Serialize + 'static,
 {
-    fn flush(this: &mut Self) -> Mutations {
+    fn flush(this: &mut Self) -> Mutations<'_> {
         SliceObserver::flush(&mut this.inner)
     }
 }
@@ -279,7 +279,7 @@ impl<T: SerializeSnapshot, const N: usize> SerializeSnapshot for [T; N]
 where
     Self: Serialize,
 {
-    fn flush(&self, snapshot: [T::Snapshot; N]) -> Mutations {
+    fn flush(&self, snapshot: [T::Snapshot; N]) -> Mutations<'_> {
         if self.iter().zip(snapshot).any(|(v, s)| !v.flush(s).is_empty()) {
             Mutations::replace(self.as_slice())
         } else {

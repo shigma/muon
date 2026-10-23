@@ -189,7 +189,7 @@ impl<T: Serialize> Serialize for AppendTail<'_, T> {
 }
 
 impl<T: Serialize + Clone + Eq + Hash> SerializeSnapshot for HashSet<T> {
-    fn flush(&self, snapshot: Self::Snapshot) -> Mutations {
+    fn flush(&self, snapshot: Self::Snapshot) -> Mutations<'_> {
         let prefix_len = self.iter().zip(snapshot.iter()).take_while(|(a, b)| *a == *b).count();
         if prefix_len == self.len() && prefix_len == snapshot.len() {
             return Mutations::new();
@@ -206,7 +206,7 @@ impl<T: Serialize + Clone + Eq + Hash> SerializeSnapshot for HashSet<T> {
         }
         if self.len() > prefix_len {
             #[cfg(feature = "append")]
-            mutations.extend(Mutations::append_owned(AppendTail {
+            mutations.extend(Mutations::append(AppendTail {
                 set: self,
                 skip: prefix_len,
             }));

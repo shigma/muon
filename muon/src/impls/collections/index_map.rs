@@ -102,7 +102,7 @@ where
     O: SerializeObserver<InnerDepth = Zero>,
     O::Head: Serialize + Sized + 'static,
 {
-    fn flush(&mut self, map: &IndexMap<K, O::Head>) -> Mutations {
+    fn flush<'a>(&'a mut self, map: &'a IndexMap<K, O::Head>) -> Mutations<'a> {
         if !self.mutated {
             return self.partial_flush(map);
         }
@@ -112,7 +112,7 @@ where
         Mutations::replace(map)
     }
 
-    fn flat_flush(&mut self, map: &IndexMap<K, O::Head>) -> Mutations {
+    fn flat_flush<'a>(&'a mut self, map: &'a IndexMap<K, O::Head>) -> Mutations<'a> {
         if !self.mutated {
             return self.partial_flush(map);
         }
@@ -140,9 +140,9 @@ where
     O: SerializeObserver<InnerDepth = Zero>,
     O::Head: Serialize + Sized + 'static,
 {
-    fn partial_flush(&mut self, map: &IndexMap<K, O::Head>) -> Mutations {
+    fn partial_flush<'a>(&'a mut self, map: &'a IndexMap<K, O::Head>) -> Mutations<'a> {
         let diff = std::mem::take(&mut self.diff);
-        let mut inner = std::mem::take(self.inner.get_mut());
+        let inner = self.inner.get_mut();
         let mut mutations = Mutations::new();
         for (key, value_state) in diff {
             match value_state {
@@ -150,7 +150,10 @@ where
                     #[cfg(feature = "delete")]
                     mutations.insert(key, MutationKind::Delete);
                     #[cfg(not(feature = "delete"))]
-                    return Mutations::replace(map);
+                    {
+                        inner.clear();
+                        return Mutations::replace(map);
+                    }
                 }
                 ValueState::Replaced | ValueState::Inserted => {
                     inner.swap_remove(&key);
@@ -159,10 +162,10 @@ where
                 }
             }
         }
-        for (key, mut ob) in inner {
-            let value = map.get(&key).expect("observer key not found in observed map");
-            unsafe { O::relocate(&mut ob, value as *const O::Head as *mut O::Head) }
-            mutations.insert(key, O::flush(&mut ob));
+        for (key, ob) in inner.iter_mut() {
+            let value = map.get(key).expect("observer key not found in observed map");
+            unsafe { O::relocate(ob, value as *const O::Head as *mut O::Head) }
+            mutations.insert(key.clone(), O::flush(ob));
         }
         mutations
     }
@@ -855,7 +858,7 @@ where
     V: SerializeSnapshot,
     Self: Serialize,
 {
-    fn flush(&self, snapshot: Self::Snapshot) -> Mutations {
+    fn flush(&self, snapshot: Self::Snapshot) -> Mutations<'_> {
         let prefix_len = self
             .keys()
             .zip(snapshot.iter().map(|(k, _)| k))
@@ -871,7 +874,7 @@ where
         }
         if self.len() > prefix_len {
             #[cfg(feature = "append")]
-            mutations.extend(Mutations::append_owned(AppendTail {
+            mutations.extend(Mutations::append(AppendTail {
                 map: self,
                 skip: prefix_len,
             }));

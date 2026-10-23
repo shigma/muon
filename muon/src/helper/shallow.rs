@@ -36,12 +36,12 @@ pub trait SerializeObserverState<T: ?Sized>: ObserverState<T> {
     /// Consumes accumulated mutation state and returns collected [`Mutations`].
     ///
     /// Must fully reset internal state so an immediately subsequent call returns empty.
-    fn flush(&mut self, value: &T) -> Mutations;
+    fn flush<'a>(&'a mut self, value: &'a T) -> Mutations<'a>;
 
     /// Flat-flush variant for `#[serde(flatten)]` fields.
     ///
     /// Default implementation panics. Override for map-like types that support flattening.
-    fn flat_flush(&mut self, _value: &T) -> Mutations {
+    fn flat_flush<'a>(&'a mut self, _value: &'a T) -> Mutations<'a> {
         panic!("flat_flush is not supported for this type")
     }
 }
@@ -53,7 +53,7 @@ impl<T: ?Sized> ObserverState<T> for bool {
 }
 
 impl<T: Serialize + ?Sized + 'static> SerializeObserverState<T> for bool {
-    fn flush(&mut self, value: &T) -> Mutations {
+    fn flush<'a>(&'a mut self, value: &'a T) -> Mutations<'a> {
         if std::mem::take(self) {
             Mutations::replace(value)
         } else {
@@ -275,15 +275,16 @@ macro_rules! __shallow_observer {
             D: $crate::helper::Unsigned,
             S: $crate::helper::AsDeref<D, Target = $ty>,
             $state: $crate::helper::shallow::SerializeObserverState<$ty>,
+            $ty: 'ob,
         {
-            fn flush(this: &mut Self) -> $crate::mutation::Mutations {
+            fn flush(this: &mut Self) -> $crate::mutation::Mutations<'_> {
                 $crate::helper::shallow::SerializeObserverState::flush(
                     &mut this.state,
                     (*this.ptr).as_deref(),
                 )
             }
 
-            fn flat_flush(this: &mut Self) -> $crate::mutation::Mutations {
+            fn flat_flush(this: &mut Self) -> $crate::mutation::Mutations<'_> {
                 $crate::helper::shallow::SerializeObserverState::flat_flush(
                     &mut this.state,
                     (*this.ptr).as_deref(),

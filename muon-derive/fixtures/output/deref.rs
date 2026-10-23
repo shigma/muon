@@ -81,14 +81,15 @@ const _: () = {
         N: ::muon::helper::Unsigned,
         O: ::muon::observe::SerializeObserver,
     {
-        fn flush(this: &mut Self) -> ::muon::Mutations {
+        fn flush(this: &mut Self) -> ::muon::Mutations<'_> {
+            let __pointer = (*this).as_deref_coinductive();
+            let __head = unsafe { ::muon::helper::Pointer::as_ref(__pointer) };
             let mutations_a = ::muon::observe::SerializeObserver::flat_flush(
                 &mut this.a,
             );
             let mutations_b = ::muon::observe::SerializeObserver::flush(&mut this.b);
             if mutations_a.is_replace() && mutations_b.is_replace() {
-                let head = &**(*this).as_deref_coinductive();
-                let value = ::muon::helper::AsDeref::<N>::as_deref(head);
+                let value = ::muon::helper::AsDeref::<N>::as_deref(__head);
                 return ::muon::Mutations::replace(value);
             }
             let mut mutations = ::muon::Mutations::new()
@@ -97,7 +98,7 @@ const _: () = {
             mutations.insert("b", mutations_b);
             mutations
         }
-        fn flat_flush(this: &mut Self) -> ::muon::Mutations {
+        fn flat_flush(this: &mut Self) -> ::muon::Mutations<'_> {
             let mutations_a = ::muon::observe::SerializeObserver::flat_flush(
                 &mut this.a,
             );
@@ -215,12 +216,13 @@ const _: () = {
         N: ::muon::helper::Unsigned,
         O: ::muon::observe::SerializeObserver,
     {
-        fn flush(this: &mut Self) -> ::muon::Mutations {
+        fn flush(this: &mut Self) -> ::muon::Mutations<'_> {
+            let __pointer = (*this).as_deref_coinductive();
+            let __head = unsafe { ::muon::helper::Pointer::as_ref(__pointer) };
             let mutations_0 = ::muon::observe::SerializeObserver::flush(&mut this.0);
             let mutations_1 = ::muon::observe::SerializeObserver::flush(&mut this.1);
             if mutations_0.is_replace() && mutations_1.is_replace() {
-                let head = &**(*this).as_deref_coinductive();
-                let value = ::muon::helper::AsDeref::<N>::as_deref(head);
+                let value = ::muon::helper::AsDeref::<N>::as_deref(__head);
                 return ::muon::Mutations::replace(value);
             }
             let mut mutations = ::muon::Mutations::new()
@@ -231,7 +233,7 @@ const _: () = {
             mutations.insert(1usize, mutations_1);
             mutations
         }
-        fn flat_flush(this: &mut Self) -> ::muon::Mutations {
+        fn flat_flush(this: &mut Self) -> ::muon::Mutations<'_> {
             let mutations_0 = ::muon::observe::SerializeObserver::flush(&mut this.0);
             let mutations_1 = ::muon::observe::SerializeObserver::flush(&mut this.1);
             let mut mutations = ::muon::Mutations::new()
@@ -335,10 +337,10 @@ const _: () = {
         N: ::muon::helper::Unsigned,
         O: ::muon::observe::SerializeObserver,
     {
-        fn flush(this: &mut Self) -> ::muon::Mutations {
+        fn flush(this: &mut Self) -> ::muon::Mutations<'_> {
             ::muon::observe::SerializeObserver::flush(&mut this.0)
         }
-        fn flat_flush(this: &mut Self) -> ::muon::Mutations {
+        fn flat_flush(this: &mut Self) -> ::muon::Mutations<'_> {
             ::muon::observe::SerializeObserver::flat_flush(&mut this.0)
         }
     }

@@ -17,8 +17,13 @@ macro_rules! impl_atomic {
             }
 
             impl SerializeSnapshot for std::sync::atomic::$ident {
-                fn flush(&self, snapshot: Self::Snapshot) -> Mutations {
-                    self.to_snapshot().flush(snapshot)
+                fn flush(&self, snapshot: Self::Snapshot) -> Mutations<'_> {
+                    let value = self.to_snapshot();
+                    if value != snapshot {
+                        Mutations::replace(value)
+                    } else {
+                        Mutations::new()
+                    }
                 }
             }
 
@@ -59,4 +64,42 @@ impl_atomic! {
     AtomicI32 => i32,
     AtomicI64 => i64,
     AtomicIsize => isize,
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    use muon_test_utils::*;
+    use serde_json::json;
+
+    use crate::adapter::{Adapter, Json};
+    use crate::general::{SerializeSnapshot, Snapshot};
+    use crate::observe::{ObserveExt, SerializeObserverExt};
+
+    const VALUE: u64 = 0xDEAD_BEEF_1234_5678;
+
+    #[test]
+    fn snapshot_flush_emits_loaded_value() {
+        let atomic = AtomicU64::new(0);
+        let snapshot = atomic.to_snapshot();
+        assert!(atomic.flush(snapshot).is_empty());
+        atomic.store(VALUE, Ordering::Relaxed);
+        let mutations = atomic.flush(snapshot);
+        // The emitted value is the one loaded during flush, not a later one.
+        atomic.store(1, Ordering::Relaxed);
+        let Json(mutation) = Json::from_mutations(mutations).unwrap();
+        assert_eq!(mutation, Some(replace!(_, json!(VALUE))));
+    }
+
+    #[test]
+    fn observer_flush() {
+        let mut atomic = AtomicU64::new(0);
+        let mut ob = atomic.__observe();
+        ob.store(VALUE, Ordering::Relaxed);
+        let Json(mutation) = ob.flush().unwrap();
+        assert_eq!(mutation, Some(replace!(_, json!(VALUE))));
+        let Json(mutation) = ob.flush().unwrap();
+        assert_eq!(mutation, None);
+    }
 }

@@ -64,7 +64,7 @@ impl<T> ObserverState<IndexSet<T>> for IndexSetObserverState<T> {
 }
 
 impl<T: Serialize + Clone + 'static> SerializeObserverState<IndexSet<T>> for IndexSetObserverState<T> {
-    fn flush(&mut self, set: &IndexSet<T>) -> Mutations {
+    fn flush<'a>(&'a mut self, set: &'a IndexSet<T>) -> Mutations<'a> {
         let append_index = std::mem::replace(&mut self.append_index, set.len());
         let truncate_len = std::mem::replace(&mut self.truncate_len, 0);
 
@@ -579,7 +579,7 @@ impl<T: Serialize> Serialize for AppendTail<'_, T> {
 }
 
 impl<T: Serialize + Clone + Eq + Hash> SerializeSnapshot for IndexSet<T> {
-    fn flush(&self, snapshot: Self::Snapshot) -> Mutations {
+    fn flush(&self, snapshot: Self::Snapshot) -> Mutations<'_> {
         let prefix_len = self.iter().zip(snapshot.iter()).take_while(|(a, b)| *a == *b).count();
         if prefix_len == self.len() && prefix_len == snapshot.len() {
             return Mutations::new();
@@ -596,7 +596,7 @@ impl<T: Serialize + Clone + Eq + Hash> SerializeSnapshot for IndexSet<T> {
         }
         if self.len() > prefix_len {
             #[cfg(feature = "append")]
-            mutations.extend(Mutations::append_owned(AppendTail {
+            mutations.extend(Mutations::append(AppendTail {
                 set: self,
                 skip: prefix_len,
             }));

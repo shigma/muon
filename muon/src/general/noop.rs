@@ -17,7 +17,7 @@ impl<T: ?Sized> ObserverState<T> for NoopObserverState<T> {
 }
 
 impl<T: ?Sized> SerializeObserverState<T> for NoopObserverState<T> {
-    fn flush(&mut self, _: &T) -> Mutations {
+    fn flush<'a>(&'a mut self, _: &'a T) -> Mutations<'a> {
         Mutations::new()
     }
 }

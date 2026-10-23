@@ -52,7 +52,7 @@ impl Snapshot for CStr {
 }
 
 impl SerializeSnapshot for CStr {
-    fn flush(&self, snapshot: Box<[u8]>) -> Mutations {
+    fn flush(&self, snapshot: Box<[u8]>) -> Mutations<'_> {
         self.to_bytes().flush(snapshot)
     }
 }

@@ -217,13 +217,6 @@ pub fn derive_observe_for_struct(
         return errors;
     }
 
-    if has_flush_delete {
-        flush_mutation_stmts = quote! {
-            let __inner = ::muon::helper::QuasiObserver::untracked_ref(&*this);
-            #flush_mutation_stmts
-        };
-    }
-
     let mut input_generics = input.generics.clone();
     let input_predicates = match take(&mut input_generics.where_clause) {
         Some(where_clause) => where_clause.predicates.into_iter().collect::<Vec<_>>(),
@@ -242,7 +235,8 @@ pub fn derive_observe_for_struct(
     let invalidate_impl;
     let assignable_impl;
     let observer_impl;
-    let flush_replace;
+    let flush_prepare;
+    let flush_value;
     let ob_quasi_predicates;
     let ob_observer_predicates;
     let input_observe_predicates;
@@ -327,11 +321,9 @@ pub fn derive_observe_for_struct(
             }
         };
 
-        flush_replace = quote! {
-            if #(#mutation_idents.is_replace())&&* {
-                let value = ::muon::helper::QuasiObserver::untracked_ref(&*this);
-                return ::muon::Mutations::replace(value);
-            }
+        flush_prepare = quote! {};
+        flush_value = quote! {
+            ::muon::helper::AsDeref::<#depth>::as_deref(&*this.#deref_member)
         };
 
         input_observe_predicates = quote! {};
@@ -452,13 +444,12 @@ pub fn derive_observe_for_struct(
             }
         };
 
-        flush_replace = quote! {
-            if #(#mutation_idents.is_replace())&&* {
-                // let value = ::muon::helper::QuasiObserver::untracked_ref(&*this);
-                let head = &**(*this).as_deref_coinductive();
-                let value = ::muon::helper::AsDeref::<N>::as_deref(head);
-                return ::muon::Mutations::replace(value);
-            }
+        flush_prepare = quote! {
+            let __pointer = (*this).as_deref_coinductive();
+            let __head = unsafe { ::muon::helper::Pointer::as_ref(__pointer) };
+        };
+        flush_value = quote! {
+            ::muon::helper::AsDeref::<#depth>::as_deref(__head)
         };
 
         input_observe_predicates = if has_general_impl {
@@ -486,6 +477,23 @@ pub fn derive_observe_for_struct(
         });
         input_observer_type_generics = quote! { <#(#ob_type_arguments),*> };
     }
+
+    let flush_replace = quote! {
+        if #(#mutation_idents.is_replace())&&* {
+            let value = #flush_value;
+            return ::muon::Mutations::replace(value);
+        }
+    };
+
+    let flat_flush_prepare = if has_flush_delete {
+        flush_mutation_stmts = quote! {
+            let __inner = #flush_value;
+            #flush_mutation_stmts
+        };
+        flush_prepare.clone()
+    } else {
+        quote! {}
+    };
 
     let (ob_impl_generics, ob_type_generics, _) = ob_generics.split_for_impl();
     let (ob_quasi_impl_generics, _, _) = ob_quasi_generics.split_for_impl();
@@ -533,6 +541,7 @@ pub fn derive_observe_for_struct(
         }
     } else {
         quote! {
+            #flush_prepare
             #flush_field_stmts
             #flush_replace
             let mut mutations = ::muon::Mutations::new().with_capacity(#(#flush_capacity)+*);
@@ -547,6 +556,7 @@ pub fn derive_observe_for_struct(
         }
     } else {
         quote! {
+            #flat_flush_prepare
             #flush_field_stmts
             let mut mutations = ::muon::Mutations::new()
                 .with_capacity(#(#flush_capacity)+*)
@@ -632,11 +642,11 @@ pub fn derive_observe_for_struct(
             #depth: ::muon::helper::Unsigned,
             #(#ob_field_tys: ::muon::observe::SerializeObserver,)*
         {
-            fn flush(this: &mut Self) -> ::muon::Mutations {
+            fn flush(this: &mut Self) -> ::muon::Mutations<'_> {
                 #flush_impl
             }
 
-            fn flat_flush(this: &mut Self) -> ::muon::Mutations {
+            fn flat_flush(this: &mut Self) -> ::muon::Mutations<'_> {
                 #flat_flush_impl
             }
         }

@@ -111,7 +111,7 @@ where
     O: SerializeObserver<InnerDepth = Zero>,
     O::Head: Serialize + Sized + 'static,
 {
-    fn flush(this: &mut Self) -> Mutations {
+    fn flush(this: &mut Self) -> Mutations<'_> {
         let option = (*this.ptr).as_deref();
         let initial = std::mem::replace(&mut this.state.initial, option.is_some());
         let mutated = std::mem::take(&mut this.state.mutated);
@@ -273,7 +273,7 @@ impl<T: Snapshot> Snapshot for Option<T> {
 }
 
 impl<T: SerializeSnapshot> SerializeSnapshot for Option<T> {
-    fn flush(&self, snapshot: Self::Snapshot) -> Mutations {
+    fn flush(&self, snapshot: Self::Snapshot) -> Mutations<'_> {
         match (self, snapshot) {
             (Some(v), Some(s)) => v.flush(s),
             (None, None) => Mutations::new(),

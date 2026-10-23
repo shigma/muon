@@ -39,7 +39,7 @@ impl Adapter for Yaml {
     type Value = Value;
     type Error = Error;
 
-    fn from_mutations(mutation: Mutations) -> Result<Self, Self::Error> {
+    fn from_mutations(mutation: Mutations<'_>) -> Result<Self, Self::Error> {
         Ok(Self(
             mutation
                 .into_inner()

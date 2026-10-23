@@ -89,7 +89,7 @@ where
     O: SerializeObserver<InnerDepth = Zero, Head: Sized>,
     O::Head: Serialize + 'static,
 {
-    fn flush(&mut self, list: &LinkedList<O::Head>) -> Mutations {
+    fn flush<'a>(&'a mut self, list: &'a LinkedList<O::Head>) -> Mutations<'a> {
         let len = list.len();
         let front_append = core::mem::replace(&mut self.front.append_len, 0);
         let front_truncate = core::mem::replace(&mut self.front.truncate_len, 0);
@@ -115,7 +115,7 @@ where
         }
         #[cfg(feature = "append")]
         if back_append > 0 {
-            mutations.extend(Mutations::append_owned(AppendTail {
+            mutations.extend(Mutations::append(AppendTail {
                 list: list as *const _,
                 skip: bb,
             }));
@@ -526,7 +526,7 @@ impl<T: Snapshot> Snapshot for LinkedList<T> {
 }
 
 impl<T: SerializeSnapshot> SerializeSnapshot for LinkedList<T> {
-    fn flush(&self, snapshot: Self::Snapshot) -> Mutations {
+    fn flush(&self, snapshot: Self::Snapshot) -> Mutations<'_> {
         let mut mutations = Mutations::new();
         if snapshot.len() > self.len() {
             #[cfg(feature = "truncate")]
@@ -541,7 +541,7 @@ impl<T: SerializeSnapshot> SerializeSnapshot for LinkedList<T> {
                     list: self as *const LinkedList<T>,
                     skip: snapshot.len(),
                 };
-                mutations.extend(Mutations::append_owned(tail));
+                mutations.extend(Mutations::append(tail));
             }
             #[cfg(not(feature = "append"))]
             return Mutations::replace(self);

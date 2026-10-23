@@ -19,7 +19,7 @@ impl<T: ?Sized> ObserverState<T> for ShallowObserverState<T> {
 }
 
 impl<T: serde::Serialize + ?Sized + 'static> SerializeObserverState<T> for ShallowObserverState<T> {
-    fn flush(&mut self, value: &T) -> Mutations {
+    fn flush<'a>(&'a mut self, value: &'a T) -> Mutations<'a> {
         if std::mem::take(&mut self.0) {
             Mutations::replace(value)
         } else {

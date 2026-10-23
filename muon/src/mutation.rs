@@ -1,4 +1,5 @@
 use std::fmt::Debug;
+use std::marker::PhantomData;
 
 use erased_serde::Serialize;
 
@@ -265,19 +266,20 @@ impl<V> Mutation<V> {
 /// assert!(matches!(result, Some(Mutation { kind: MutationKind::Batch(_), .. })));
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Mutations<V = Box<dyn Serialize>> {
+pub struct Mutations<'a, V = Box<dyn Serialize + 'a>> {
     inner: Option<Mutation<V>>,
     capacity: usize,
     is_replace: bool,
+    phantom: PhantomData<&'a ()>,
 }
 
-impl<V> Default for Mutations<V> {
+impl<V> Default for Mutations<'_, V> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<V> From<MutationKind<V>> for Mutations<V> {
+impl<V> From<MutationKind<V>> for Mutations<'_, V> {
     fn from(kind: MutationKind<V>) -> Self {
         Self {
             is_replace: matches!(kind, MutationKind::Replace(_)),
@@ -286,23 +288,25 @@ impl<V> From<MutationKind<V>> for Mutations<V> {
                 kind,
             }),
             capacity: 2,
+            phantom: PhantomData,
         }
     }
 }
 
-impl<V> From<Mutations<V>> for Option<Mutation<V>> {
-    fn from(value: Mutations<V>) -> Self {
+impl<V> From<Mutations<'_, V>> for Option<Mutation<V>> {
+    fn from(value: Mutations<'_, V>) -> Self {
         value.into_inner()
     }
 }
 
-impl<V> Mutations<V> {
+impl<V> Mutations<'_, V> {
     /// Creates a new empty collection.
     pub fn new() -> Self {
         Self {
             is_replace: false,
             inner: None,
             capacity: 2,
+            phantom: PhantomData,
         }
     }
 
@@ -438,94 +442,27 @@ impl<V> Mutations<V> {
     }
 }
 
-/// A raw-pointer wrapper that implements [`Serialize`](serde::Serialize) for `?Sized` types.
-///
-/// This type enables creating [`Box<dyn Serialize>`](erased_serde::Serialize) from references to
-/// unsized types like `str` and `[T]`, which cannot be directly cast to `&dyn Serialize` because
-/// `&dyn Serialize` requires `Sized`. By wrapping the raw pointer in a `Sized` struct, the
-/// [`Serialize`](serde::Serialize) implementation can dereference the pointer during serialization.
-///
-/// ## Safety
-///
-/// The pointed-to value must remain valid until serialization occurs. This is guaranteed by the
-/// observer's `'ob` lifetime — the observed data outlives all mutations produced by
-/// [`flush`](crate::observe::SerializeObserver::flush).
-pub(crate) struct SerializeRef<T: ?Sized>(pub *const T);
-
-impl<T> serde::Serialize for SerializeRef<T>
-where
-    T: serde::Serialize + ?Sized,
-{
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        unsafe { &*self.0 }.serialize(serializer)
-    }
-}
-
-impl Mutations {
-    /// Creates a [`Mutations`] containing a single [`Replace`](MutationKind::Replace) mutation,
-    /// taking ownership of the value.
-    ///
-    /// Unlike [`replace`](Self::replace), which accepts `&T` (including unsized types) and wraps it
-    /// in [`SerializeRef`], this method takes `T` by value and boxes it directly.
-    ///
-    /// ## Safety (internal)
-    ///
-    /// Uses `transmute` to erase lifetime from the boxed trait object. This is sound
-    /// because the pointed-to value's validity is guaranteed by the observer's `'ob` lifetime —
-    /// serialization always completes before the observed data is dropped.
-    pub fn replace_owned<T: serde::Serialize>(value: T) -> Self {
-        let boxed = unsafe { std::mem::transmute::<Box<dyn Serialize + '_>, Box<dyn Serialize>>(Box::new(value)) };
-        MutationKind::Replace(boxed).into()
-    }
-
+impl<'a> Mutations<'a> {
     /// Creates a [`Mutations`] containing a single [`Replace`](MutationKind::Replace) mutation
     /// with the given value.
     ///
-    /// The value is wrapped in a [`Box<dyn Serialize>`](erased_serde::Serialize) via
-    /// [`SerializeRef`], allowing unsized types like `str` and `[T]` to be used.
-    ///
-    /// ## Safety (internal)
-    ///
-    /// Uses [`SerializeRef`] to store a raw pointer for deferred serialization.
-    /// The pointed-to value's validity is guaranteed by the observer's `'ob` lifetime —
-    /// serialization always completes before the observed data is dropped.
-    pub fn replace<T: serde::Serialize + ?Sized>(value: &T) -> Self {
-        Self::replace_owned(SerializeRef(value))
+    /// The value is boxed and serialized lazily, when an [`Adapter`](crate::Adapter) converts the
+    /// mutations. Pass a reference (`&T`, including unsized `&str` and `&[T]`) to borrow from the
+    /// observed value, or an owned value for data computed during flush, which would not outlive
+    /// the flush call if borrowed.
+    pub fn replace<T: serde::Serialize + 'a>(value: T) -> Self {
+        MutationKind::Replace(Box::new(value) as Box<dyn Serialize + 'a>).into()
     }
 
     /// Creates a [`Mutations`] containing a single [`Append`](MutationKind::Append) mutation
     /// with the given value.
     ///
-    /// The value is wrapped in a [`Box<dyn Serialize>`](erased_serde::Serialize) via
-    /// [`SerializeRef`], allowing unsized types like `str` and `[T]` to be used.
-    ///
-    /// ## Safety (internal)
-    ///
-    /// Uses [`SerializeRef`] to store a raw pointer for deferred serialization.
-    /// The pointed-to value's validity is guaranteed by the observer's `'ob` lifetime —
-    /// serialization always completes before the observed data is dropped.
+    /// The value is boxed and serialized lazily, when an [`Adapter`](crate::Adapter) converts the
+    /// mutations. Pass a reference (`&T`, including unsized `&str` and `&[T]`) to borrow from the
+    /// observed value, or an owned value for data computed during flush, which would not outlive
+    /// the flush call if borrowed.
     #[cfg(feature = "append")]
-    pub fn append<T: serde::Serialize + ?Sized>(value: &T) -> Self {
-        Self::append_owned(SerializeRef(value))
-    }
-
-    /// Creates a [`Mutations`] containing a single [`Append`](MutationKind::Append) mutation,
-    /// taking ownership of the value.
-    ///
-    /// Unlike [`append`](Self::append), which accepts `&T` (including unsized types) and wraps it
-    /// in [`SerializeRef`], this method takes `T` by value and boxes it directly.
-    ///
-    /// ## Safety (internal)
-    ///
-    /// Uses `transmute` to erase lifetime from the boxed trait object. This is sound
-    /// because the pointed-to value's validity is guaranteed by the observer's `'ob` lifetime —
-    /// serialization always completes before the observed data is dropped.
-    #[cfg(feature = "append")]
-    pub fn append_owned<T: serde::Serialize>(value: T) -> Self {
-        let boxed = unsafe { std::mem::transmute::<Box<dyn Serialize + '_>, Box<dyn Serialize>>(Box::new(value)) };
-        MutationKind::Append(boxed).into()
+    pub fn append<T: serde::Serialize + 'a>(value: T) -> Self {
+        MutationKind::Append(Box::new(value) as Box<dyn Serialize + 'a>).into()
     }
 }

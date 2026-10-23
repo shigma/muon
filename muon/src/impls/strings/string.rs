@@ -49,7 +49,7 @@ impl<T: AsRef<str> + ?Sized> ObserverState<T> for StringObserverState {
 }
 
 impl<T: AsRef<str> + ?Sized> SerializeObserverState<T> for StringObserverState {
-    fn flush(&mut self, value: &T) -> Mutations {
+    fn flush<'a>(&'a mut self, value: &'a T) -> Mutations<'a> {
         let value = value.as_ref();
         let len = value.len();
         let append_index = std::mem::replace(&mut self.append_index, len);
@@ -128,7 +128,7 @@ where
     D: Unsigned,
     S: AsDeref<D, Target = String>,
 {
-    fn flush(this: &mut Self) -> Mutations {
+    fn flush(this: &mut Self) -> Mutations<'_> {
         SerializeObserver::flush(&mut this.inner)
     }
 }
@@ -432,7 +432,7 @@ impl Snapshot for String {
 }
 
 impl SerializeSnapshot for String {
-    fn flush(&self, snapshot: Box<str>) -> Mutations {
+    fn flush(&self, snapshot: Box<str>) -> Mutations<'_> {
         self.as_str().flush(snapshot)
     }
 }

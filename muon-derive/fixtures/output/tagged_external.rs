@@ -151,7 +151,7 @@ const _: () = {
                 }
             }
         }
-        fn flush(&mut self, __ptr: *const Foo<S, T, U, V>) -> ::muon::Mutations
+        fn flush(&mut self, __ptr: *const Foo<S, T, U, V>) -> ::muon::Mutations<'_>
         where
             Foo<S, T, U, V>: ::muon::helper::serde::Serialize + 'static,
             ::muon::observe::DefaultObserver<'ob, U>: ::muon::observe::SerializeObserver,
@@ -196,7 +196,7 @@ const _: () = {
                 Self::__Unknown => ::muon::Mutations::new(),
             }
         }
-        fn flat_flush(&mut self, __ptr: *const Foo<S, T, U, V>) -> ::muon::Mutations
+        fn flat_flush(&mut self, __ptr: *const Foo<S, T, U, V>) -> ::muon::Mutations<'_>
         where
             Foo<S, T, U, V>: ::muon::helper::serde::Serialize + 'static,
             ::muon::observe::DefaultObserver<'ob, U>: ::muon::observe::SerializeObserver,
@@ -315,7 +315,7 @@ const _: () = {
         ::muon::observe::DefaultObserver<'ob, U>: ::muon::observe::SerializeObserver,
         ::muon::general::SnapshotObserver<'ob, V, V>: ::muon::observe::SerializeObserver,
     {
-        fn flush(this: &mut Self) -> ::muon::Mutations {
+        fn flush(this: &mut Self) -> ::muon::Mutations<'_> {
             let value = this.ptr.as_deref();
             let initial = this.initial;
             this.initial = FooObserverInitial::new(value);
@@ -331,7 +331,7 @@ const _: () = {
                 _ => ::muon::Mutations::replace(value),
             }
         }
-        fn flat_flush(this: &mut Self) -> ::muon::Mutations {
+        fn flat_flush(this: &mut Self) -> ::muon::Mutations<'_> {
             let value = this.ptr.as_deref();
             let initial = this.initial;
             this.initial = FooObserverInitial::new(value);
@@ -377,7 +377,7 @@ impl ::muon::general::Snapshot for Qux {
 #[rustfmt::skip]
 #[automatically_derived]
 impl ::muon::general::SerializeSnapshot for Qux {
-    fn flush(&self, _snapshot: ()) -> ::muon::Mutations {
+    fn flush(&self, _snapshot: ()) -> ::muon::Mutations<'_> {
         ::muon::Mutations::new()
     }
 }

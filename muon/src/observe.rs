@@ -116,7 +116,7 @@ pub trait SerializeObserver: Observer {
     /// [`Replace`](crate::MutationKind::Replace), the observer should collapse them into a
     /// single whole-value [`Replace`](crate::MutationKind::Replace). This applies to structs,
     /// tuples, arrays, and slices.
-    fn flush(this: &mut Self) -> Mutations;
+    fn flush(this: &mut Self) -> Mutations<'_>;
 
     /// Flushes mutations for a `#[serde(flatten)]` field.
     ///
@@ -137,7 +137,7 @@ pub trait SerializeObserver: Observer {
     /// [`DerefObserver`](crate::impls::DerefObserver),
     /// [`CowObserver`](crate::impls::CowObserver),
     /// [`NewtypeObserver`](crate::impls::NewtypeObserver)) implement this method.
-    fn flat_flush(_this: &mut Self) -> Mutations {
+    fn flat_flush(_this: &mut Self) -> Mutations<'_> {
         panic!("flat_flush can only be called on structs and maps")
     }
 }

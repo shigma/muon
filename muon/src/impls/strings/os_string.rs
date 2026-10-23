@@ -55,7 +55,7 @@ impl ObserverState<OsStr> for OsStringObserverState {
 }
 
 impl SerializeObserverState<OsStr> for OsStringObserverState {
-    fn flush(&mut self, value: &OsStr) -> Mutations {
+    fn flush<'a>(&'a mut self, value: &'a OsStr) -> Mutations<'a> {
         let new_len = os_str_len(value);
         let append_index = std::mem::replace(&mut self.append_index, new_len);
         let truncate_len = std::mem::replace(&mut self.truncate_len, 0);
@@ -75,7 +75,7 @@ impl SerializeObserverState<OsStr> for OsStringObserverState {
                 #[cfg(unix)]
                 mutations.extend(Mutations::append(&value.as_bytes()[append_index..]));
                 #[cfg(windows)]
-                mutations.extend(Mutations::append_owned(
+                mutations.extend(Mutations::append(
                     value.encode_wide().skip(append_index).collect::<Vec<_>>(),
                 ));
             }
@@ -144,7 +144,7 @@ where
     D: Unsigned,
     S: AsDeref<D, Target = OsString>,
 {
-    fn flush(this: &mut Self) -> Mutations {
+    fn flush(this: &mut Self) -> Mutations<'_> {
         SerializeObserver::flush(&mut this.inner)
     }
 }
@@ -283,7 +283,7 @@ impl Snapshot for OsString {
 }
 
 impl SerializeSnapshot for OsString {
-    fn flush(&self, snapshot: Self::Snapshot) -> Mutations {
+    fn flush(&self, snapshot: Self::Snapshot) -> Mutations<'_> {
         self.as_os_str().flush(snapshot)
     }
 }

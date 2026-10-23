@@ -38,7 +38,7 @@ pub trait Adapter: Sized {
     type Error;
 
     /// Constructs the adapter from an optional mutation.
-    fn from_mutations(mutation: Mutations) -> Result<Self, Self::Error>;
+    fn from_mutations(mutation: Mutations<'_>) -> Result<Self, Self::Error>;
 
     /// Gets a mutable reference to a nested value by path segment.
     ///

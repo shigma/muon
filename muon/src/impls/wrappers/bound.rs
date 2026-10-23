@@ -120,7 +120,7 @@ where
     O: SerializeObserver<InnerDepth = Zero>,
     O::Head: Serialize + Sized + 'static,
 {
-    fn flush(this: &mut Self) -> Mutations {
+    fn flush(this: &mut Self) -> Mutations<'_> {
         let value = (*this.ptr).as_deref();
         let initial = std::mem::replace(&mut this.state.initial, !matches!(value, Bound::Unbounded));
         let mutated = std::mem::take(&mut this.state.mutated);
@@ -140,7 +140,7 @@ where
         }
     }
 
-    fn flat_flush(this: &mut Self) -> Mutations {
+    fn flat_flush(this: &mut Self) -> Mutations<'_> {
         let value = (*this.ptr).as_deref();
         let initial = std::mem::replace(&mut this.state.initial, !matches!(value, Bound::Unbounded));
         let mutated = std::mem::take(&mut this.state.mutated);
@@ -224,7 +224,7 @@ impl<T: Snapshot> Snapshot for Bound<T> {
 }
 
 impl<T: SerializeSnapshot> SerializeSnapshot for Bound<T> {
-    fn flush(&self, snapshot: Self::Snapshot) -> Mutations {
+    fn flush(&self, snapshot: Self::Snapshot) -> Mutations<'_> {
         match (self, snapshot) {
             (Bound::Included(v), Bound::Included(s)) => v.flush(s).with_prefix("Included"),
             (Bound::Excluded(v), Bound::Excluded(s)) => v.flush(s).with_prefix("Excluded"),

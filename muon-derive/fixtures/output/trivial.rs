@@ -47,7 +47,7 @@ const _: () = {
         Vec<T>: ::muon::general::SerializeSnapshot,
         Self: ::serde::Serialize,
     {
-        fn flush(&self, snapshot: Self::Snapshot) -> ::muon::Mutations {
+        fn flush(&self, snapshot: Self::Snapshot) -> ::muon::Mutations<'_> {
             let a = ::muon::general::SerializeSnapshot::flush(&self.a, snapshot.a)
                 .with_prefix("a");
             if a.is_replace() {
@@ -85,7 +85,7 @@ impl ::muon::general::Snapshot for NoopStruct {
 #[rustfmt::skip]
 #[automatically_derived]
 impl ::muon::general::SerializeSnapshot for NoopStruct {
-    fn flush(&self, _snapshot: ()) -> ::muon::Mutations {
+    fn flush(&self, _snapshot: ()) -> ::muon::Mutations<'_> {
         ::muon::Mutations::new()
     }
 }

@@ -91,12 +91,12 @@ macro_rules! impl_range {
                 O: SerializeObserver<InnerDepth = Zero>,
                 O::Head: Serialize + Sized + 'static,
             {
-                fn flush(this: &mut Self) -> Mutations {
+                fn flush(this: &mut Self) -> Mutations<'_> {
                     $(
                         let $field = SerializeObserver::flush(&mut this.$field).with_prefix(stringify!($field));
                     )*
                     if $($field.is_replace())&&* {
-                        Mutations::replace((*this).untracked_ref())
+                        Mutations::replace((*this.ptr).as_deref())
                     } else {
                         let mut mutations = Mutations::new();
                         $(mutations.extend($field);)*
@@ -104,7 +104,7 @@ macro_rules! impl_range {
                     }
                 }
 
-                fn flat_flush(this: &mut Self) -> Mutations {
+                fn flat_flush(this: &mut Self) -> Mutations<'_> {
                     $(
                         let $field = SerializeObserver::flush(&mut this.$field).with_prefix(stringify!($field));
                     )*
@@ -176,7 +176,7 @@ macro_rules! impl_range {
             }
 
             impl<T: SerializeSnapshot> SerializeSnapshot for $ty<T> {
-                fn flush(&self, snapshot: Self::Snapshot) -> Mutations {
+                fn flush(&self, snapshot: Self::Snapshot) -> Mutations<'_> {
                     $(let $field = self.$field.flush(snapshot.$field).with_prefix(stringify!($field));)*
                     if $($field.is_replace())&&* {
                         Mutations::replace(self)
@@ -276,11 +276,11 @@ where
     O: SerializeObserver<InnerDepth = Zero>,
     O::Head: Serialize + Sized + 'static,
 {
-    fn flush(this: &mut Self) -> Mutations {
+    fn flush(this: &mut Self) -> Mutations<'_> {
         let mutations_start = SerializeObserver::flush(&mut this.start).with_prefix("start");
         let mutations_end = SerializeObserver::flush(&mut this.end).with_prefix("end");
         if mutations_start.is_replace() && mutations_end.is_replace() {
-            Mutations::replace((*this).untracked_ref())
+            Mutations::replace((*this.ptr).as_deref())
         } else {
             let mut mutations = Mutations::new();
             mutations.extend(mutations_start);
@@ -289,7 +289,7 @@ where
         }
     }
 
-    fn flat_flush(this: &mut Self) -> Mutations {
+    fn flat_flush(this: &mut Self) -> Mutations<'_> {
         let mutations_start = SerializeObserver::flush(&mut this.start).with_prefix("start");
         let mutations_end = SerializeObserver::flush(&mut this.end).with_prefix("end");
         let mut mutations = Mutations::new().with_replace(mutations_start.is_replace() && mutations_end.is_replace());
@@ -373,7 +373,7 @@ impl<T: Snapshot> Snapshot for RangeInclusive<T> {
 }
 
 impl<T: SerializeSnapshot> SerializeSnapshot for RangeInclusive<T> {
-    fn flush(&self, snapshot: Self::Snapshot) -> Mutations {
+    fn flush(&self, snapshot: Self::Snapshot) -> Mutations<'_> {
         let start = self.start().flush(snapshot.0).with_prefix("start");
         let end = self.end().flush(snapshot.1).with_prefix("end");
         if start.is_replace() && end.is_replace() {

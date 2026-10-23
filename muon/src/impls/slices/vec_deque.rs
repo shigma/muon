@@ -206,7 +206,7 @@ where
     O: SerializeObserver<InnerDepth = Zero, Head: Sized>,
     O::Head: Serialize + 'static,
 {
-    fn flush(&mut self, deque: &VecDeque<O::Head>) -> Mutations {
+    fn flush<'a>(&'a mut self, deque: &'a VecDeque<O::Head>) -> Mutations<'a> {
         let len = deque.len();
         let front_prepend_len = core::mem::replace(&mut self.front_prepend_len, 0);
         let front_truncate_len = core::mem::replace(&mut self.front_truncate_len, 0);
@@ -248,7 +248,7 @@ where
         }
         #[cfg(feature = "append")]
         if back_append_len > 0 {
-            mutations.extend(Mutations::append_owned(AppendTail {
+            mutations.extend(Mutations::append(AppendTail {
                 deque: deque as *const _,
                 skip: back_boundary,
             }));
@@ -845,7 +845,7 @@ impl<T: Snapshot> Snapshot for VecDeque<T> {
 }
 
 impl<T: SerializeSnapshot> SerializeSnapshot for VecDeque<T> {
-    fn flush(&self, snapshot: Self::Snapshot) -> Mutations {
+    fn flush(&self, snapshot: Self::Snapshot) -> Mutations<'_> {
         let mut mutations = Mutations::new();
         if snapshot.len() > self.len() {
             #[cfg(feature = "truncate")]
@@ -860,7 +860,7 @@ impl<T: SerializeSnapshot> SerializeSnapshot for VecDeque<T> {
                     deque: self as *const VecDeque<T>,
                     skip: snapshot.len(),
                 };
-                mutations.extend(Mutations::append_owned(tail));
+                mutations.extend(Mutations::append(tail));
             }
             #[cfg(not(feature = "append"))]
             return Mutations::replace(self);

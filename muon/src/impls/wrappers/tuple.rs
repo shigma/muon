@@ -78,10 +78,10 @@ where
     O: SerializeObserver<InnerDepth = Zero>,
     O::Head: Serialize + Sized + 'static,
 {
-    fn flush(this: &mut Self) -> Mutations {
+    fn flush(this: &mut Self) -> Mutations<'_> {
         let mutations_0 = SerializeObserver::flush(&mut this.0);
         if mutations_0.is_replace() {
-            Mutations::replace((*this).untracked_ref())
+            Mutations::replace((*this.1).as_deref())
         } else {
             mutations_0.with_prefix(0)
         }
@@ -176,7 +176,7 @@ impl<T: Snapshot> Snapshot for (T,) {
 #[cfg_attr(docsrs, doc(fake_variadic))]
 #[cfg_attr(docsrs, doc = "This trait is implemented for tuples up to 12 items long.")]
 impl<T: SerializeSnapshot> SerializeSnapshot for (T,) {
-    fn flush(&self, snapshot: Self::Snapshot) -> Mutations {
+    fn flush(&self, snapshot: Self::Snapshot) -> Mutations<'_> {
         let mutations = self.0.flush(snapshot.0);
         if mutations.is_replace() {
             Mutations::replace(self)
@@ -263,11 +263,11 @@ macro_rules! tuple_observer {
             S: AsDeref<D, Target = ($($o::Head,)*)>,
             $($o: SerializeObserver<InnerDepth = Zero, Head: Serialize + Sized + 'static>,)*
         {
-            fn flush(this: &mut Self) -> Mutations {
+            fn flush(this: &mut Self) -> Mutations<'_> {
                 let mutations_tuple = ($(SerializeObserver::flush(&mut this.$n).with_prefix($n),)*);
                 let capacity = 0 $(+ mutations_tuple.$n.len())*;
                 if capacity == $ptr {
-                    return Mutations::replace((*this).untracked_ref());
+                    return Mutations::replace((*this.$ptr).as_deref());
                 }
                 let mut mutations = Mutations::new().with_capacity(capacity);
                 $(
@@ -405,7 +405,7 @@ macro_rules! tuple_observer {
         }
 
         impl<$($t: SerializeSnapshot,)*> SerializeSnapshot for ($($t,)*) {
-            fn flush(&self, snapshot: Self::Snapshot) -> Mutations {
+            fn flush(&self, snapshot: Self::Snapshot) -> Mutations<'_> {
                 let mutations_tuple = ($(self.$n.flush(snapshot.$n).with_prefix($n),)*);
                 let capacity = 0 $(+ mutations_tuple.$n.len())*;
                 if capacity == $ptr {

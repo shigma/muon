@@ -95,7 +95,7 @@ const _: () = {
         S: ::muon::helper::AsDerefMut<N, Target = Foo>,
         N: ::muon::helper::Unsigned,
     {
-        fn flush(this: &mut Self) -> ::muon::Mutations {
+        fn flush(this: &mut Self) -> ::muon::Mutations<'_> {
             let mutations_a = ::muon::observe::SerializeObserver::flush(&mut this.r#a);
             let mutations_b = ::muon::observe::SerializeObserver::flush(&mut this.b);
             let mutations_c = ::muon::observe::SerializeObserver::flat_flush(
@@ -104,7 +104,7 @@ const _: () = {
             if mutations_a.is_replace() && mutations_b.is_replace()
                 && mutations_c.is_replace()
             {
-                let value = ::muon::helper::QuasiObserver::untracked_ref(&*this);
+                let value = ::muon::helper::AsDeref::<N>::as_deref(&*this.__ptr);
                 return ::muon::Mutations::replace(value);
             }
             let mut mutations = ::muon::Mutations::new()
@@ -117,7 +117,7 @@ const _: () = {
             mutations.extend(mutations_c);
             mutations
         }
-        fn flat_flush(this: &mut Self) -> ::muon::Mutations {
+        fn flat_flush(this: &mut Self) -> ::muon::Mutations<'_> {
             let mutations_a = ::muon::observe::SerializeObserver::flush(&mut this.r#a);
             let mutations_b = ::muon::observe::SerializeObserver::flush(&mut this.b);
             let mutations_c = ::muon::observe::SerializeObserver::flat_flush(
@@ -248,10 +248,10 @@ where
     S: ::muon::helper::AsDerefMut<N, Target = Bar>,
     N: ::muon::helper::Unsigned,
 {
-    fn flush(this: &mut Self) -> ::muon::Mutations {
+    fn flush(this: &mut Self) -> ::muon::Mutations<'_> {
         ::muon::observe::SerializeObserver::flush(&mut this.0)
     }
-    fn flat_flush(this: &mut Self) -> ::muon::Mutations {
+    fn flat_flush(this: &mut Self) -> ::muon::Mutations<'_> {
         ::muon::observe::SerializeObserver::flat_flush(&mut this.0)
     }
 }
@@ -345,11 +345,11 @@ const _: () = {
         S: ::muon::helper::AsDerefMut<N, Target = Baz>,
         N: ::muon::helper::Unsigned,
     {
-        fn flush(this: &mut Self) -> ::muon::Mutations {
+        fn flush(this: &mut Self) -> ::muon::Mutations<'_> {
             let mutations_0 = ::muon::observe::SerializeObserver::flush(&mut this.0);
             let mutations_1 = ::muon::observe::SerializeObserver::flush(&mut this.1);
             if mutations_0.is_replace() && mutations_1.is_replace() {
-                let value = ::muon::helper::QuasiObserver::untracked_ref(&*this);
+                let value = ::muon::helper::AsDeref::<N>::as_deref(&*this.2);
                 return ::muon::Mutations::replace(value);
             }
             let mut mutations = ::muon::Mutations::new()
@@ -360,7 +360,7 @@ const _: () = {
             mutations.insert(1usize, mutations_1);
             mutations
         }
-        fn flat_flush(this: &mut Self) -> ::muon::Mutations {
+        fn flat_flush(this: &mut Self) -> ::muon::Mutations<'_> {
             let mutations_0 = ::muon::observe::SerializeObserver::flush(&mut this.0);
             let mutations_1 = ::muon::observe::SerializeObserver::flush(&mut this.1);
             let mut mutations = ::muon::Mutations::new()

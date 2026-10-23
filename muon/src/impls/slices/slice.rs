@@ -57,7 +57,7 @@ pub trait SliceSerializeObserverState<S: ?Sized, D>: SliceObserverState {
     ///
     /// This method must fully reset all internal state so that an immediately subsequent call with
     /// no intervening mutations returns empty.
-    fn flush(&mut self, ptr: &mut Pointer<S>) -> Mutations;
+    fn flush<'a>(&'a mut self, ptr: &'a mut Pointer<S>) -> Mutations<'a>;
 }
 
 /// Lazily-initialized element observer storage backed by [`MaybeUninit`].
@@ -196,7 +196,7 @@ where
     D: Unsigned,
     S: AsDeref<D, Target = T>,
 {
-    fn flush(this: &mut Self) -> Mutations {
+    fn flush(this: &mut Self) -> Mutations<'_> {
         this.state.flush(&mut this.ptr)
     }
 }
@@ -505,7 +505,7 @@ impl<T: Snapshot> Snapshot for [T] {
 }
 
 impl<T: SerializeSnapshot> SerializeSnapshot for [T] {
-    fn flush(&self, snapshot: Box<[T::Snapshot]>) -> Mutations {
+    fn flush(&self, snapshot: Box<[T::Snapshot]>) -> Mutations<'_> {
         let min_len = self.len().min(snapshot.len());
 
         let mut mutations = Mutations::new();

@@ -67,7 +67,7 @@ impl ObserverState<OsStr> for OsStrRoObserverState {
 }
 
 impl SerializeObserverState<OsStr> for OsStrRoObserverState {
-    fn flush(&mut self, value: &OsStr) -> Mutations {
+    fn flush<'a>(&'a mut self, value: &'a OsStr) -> Mutations<'a> {
         let Some((old_addr, old_len)) = self.raw_parts.take() else {
             return Mutations::new();
         };
@@ -95,8 +95,7 @@ impl SerializeObserverState<OsStr> for OsStrRoObserverState {
                 #[cfg(unix)]
                 return Mutations::append(&value.as_bytes()[old_len..]).with_prefix("Unix");
                 #[cfg(windows)]
-                return Mutations::append_owned(value.encode_wide().skip(old_len).collect::<Vec<_>>())
-                    .with_prefix("Windows");
+                return Mutations::append(value.encode_wide().skip(old_len).collect::<Vec<_>>()).with_prefix("Windows");
             }
         }
         Mutations::new()
@@ -140,10 +139,50 @@ impl Snapshot for OsStr {
 }
 
 impl SerializeSnapshot for OsStr {
-    fn flush(&self, snapshot: Self::Snapshot) -> Mutations {
+    fn flush(&self, snapshot: Self::Snapshot) -> Mutations<'_> {
         #[cfg(unix)]
-        return self.to_snapshot().flush(snapshot).with_prefix("Unix");
+        return self.as_bytes().flush(snapshot).with_prefix("Unix");
         #[cfg(windows)]
-        return self.to_snapshot().flush(snapshot).with_prefix("Windows");
+        {
+            // `encode_wide` yields a temporary buffer, so emit it by ownership as a whole replace.
+            let wide = self.to_snapshot();
+            if wide == snapshot {
+                return Mutations::new();
+            }
+            return Mutations::replace(wide).with_prefix("Windows");
+        }
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use std::ffi::OsStr;
+
+    use muon_test_utils::*;
+    use serde_json::json;
+
+    use crate::adapter::{Adapter, Json};
+    use crate::general::{SerializeSnapshot, Snapshot};
+
+    #[test]
+    fn snapshot_flush_no_change() {
+        let value = OsStr::new("hello");
+        assert!(value.flush(value.to_snapshot()).is_empty());
+    }
+
+    #[test]
+    fn snapshot_flush_append() {
+        let value = OsStr::new("hello world");
+        let snapshot = OsStr::new("hello").to_snapshot();
+        let Json(mutation) = Json::from_mutations(value.flush(snapshot)).unwrap();
+        assert_eq!(mutation, Some(append!(Unix, json!(b" world"))));
+    }
+
+    #[test]
+    fn snapshot_flush_element_change() {
+        let value = OsStr::new("hallo");
+        let snapshot = OsStr::new("hello").to_snapshot();
+        let Json(mutation) = Json::from_mutations(value.flush(snapshot)).unwrap();
+        assert_eq!(mutation, Some(replace!(Unix.-4, json!(b'a'))));
     }
 }

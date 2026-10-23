@@ -61,7 +61,7 @@ impl ObserverState<Path> for PathBufObserverState {
 }
 
 impl SerializeObserverState<Path> for PathBufObserverState {
-    fn flush(&mut self, value: &Path) -> Mutations {
+    fn flush<'a>(&'a mut self, value: &'a Path) -> Mutations<'a> {
         let truncate_len = std::mem::replace(&mut self.truncate_len, 0);
         let Some(str) = value.to_str() else {
             self.append_index = 0;
@@ -145,7 +145,7 @@ where
     D: Unsigned,
     S: AsDeref<D, Target = PathBuf>,
 {
-    fn flush(this: &mut Self) -> Mutations {
+    fn flush(this: &mut Self) -> Mutations<'_> {
         SerializeObserver::flush(&mut this.inner)
     }
 }
@@ -288,7 +288,7 @@ impl Snapshot for PathBuf {
 }
 
 impl SerializeSnapshot for PathBuf {
-    fn flush(&self, snapshot: Option<Box<str>>) -> Mutations {
+    fn flush(&self, snapshot: Option<Box<str>>) -> Mutations<'_> {
         self.as_path().flush(snapshot)
     }
 }

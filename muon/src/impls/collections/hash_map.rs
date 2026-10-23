@@ -79,7 +79,7 @@ where
     O: SerializeObserver<InnerDepth = Zero>,
     O::Head: Serialize + Sized + 'static,
 {
-    fn flush(&mut self, map: &HashMap<K, O::Head>) -> Mutations {
+    fn flush<'a>(&'a mut self, map: &'a HashMap<K, O::Head>) -> Mutations<'a> {
         if !self.mutated {
             return self.partial_flush(map);
         }
@@ -89,7 +89,7 @@ where
         Mutations::replace(map)
     }
 
-    fn flat_flush(&mut self, map: &HashMap<K, O::Head>) -> Mutations {
+    fn flat_flush<'a>(&'a mut self, map: &'a HashMap<K, O::Head>) -> Mutations<'a> {
         if !self.mutated {
             return self.partial_flush(map);
         }
@@ -138,9 +138,9 @@ where
     O: SerializeObserver<InnerDepth = Zero>,
     O::Head: Serialize + Sized + 'static,
 {
-    fn partial_flush(&mut self, map: &HashMap<K, O::Head>) -> Mutations {
+    fn partial_flush<'a>(&'a mut self, map: &'a HashMap<K, O::Head>) -> Mutations<'a> {
         let diff = std::mem::take(&mut self.diff);
-        let mut inner = std::mem::take(self.inner.get_mut());
+        let inner = self.inner.get_mut();
         let mut mutations = Mutations::new();
         for (key, value_state) in diff {
             match value_state {
@@ -148,7 +148,10 @@ where
                     #[cfg(feature = "delete")]
                     mutations.insert(key, MutationKind::Delete);
                     #[cfg(not(feature = "delete"))]
-                    return Mutations::replace(map);
+                    {
+                        inner.clear();
+                        return Mutations::replace(map);
+                    }
                 }
                 ValueState::Replaced | ValueState::Inserted => {
                     inner.remove(&key);
@@ -157,10 +160,10 @@ where
                 }
             }
         }
-        for (key, mut ob) in inner {
-            let value = map.get(&key).expect("observer key not found in observed map");
-            unsafe { O::relocate(&mut ob, value as *const O::Head as *mut O::Head) }
-            mutations.insert(key, O::flush(&mut ob));
+        for (key, ob) in inner.iter_mut() {
+            let value = map.get(key).expect("observer key not found in observed map");
+            unsafe { O::relocate(ob, value as *const O::Head as *mut O::Head) }
+            mutations.insert(key.clone(), O::flush(ob));
         }
         mutations
     }
@@ -495,7 +498,7 @@ where
     V: SerializeSnapshot,
     Self: Serialize,
 {
-    fn flush(&self, mut snapshot: Self::Snapshot) -> Mutations {
+    fn flush(&self, mut snapshot: Self::Snapshot) -> Mutations<'_> {
         let mut mutations = Mutations::new();
         let mut is_replace = true;
         for (k, v) in self.iter() {
@@ -818,5 +821,32 @@ mod tests {
         assert_eq!(batch[0], delete!(a));
         assert_eq!(batch[1], delete!(b));
         assert_eq!(batch[2], replace!(c, json!(30)));
+    }
+
+    #[test]
+    fn retained_observer_across_flushes() {
+        let mut map = HashMap::from([("a".to_string(), "x".to_string())]);
+        let mut ob = map.__observe();
+        ob.get_mut("a").unwrap().push_str("1");
+        let Json(mutation) = ob.flush().unwrap();
+        assert_eq!(mutation, Some(append!(a, json!("1"))));
+        let Json(mutation) = ob.flush().unwrap();
+        assert_eq!(mutation, None);
+
+        // Force a rehash, so that the retained observer of `a` must be relocated.
+        for i in 0..64 {
+            ob.insert(format!("k{i}"), String::new());
+        }
+        let _ = ob.flush::<Json>().unwrap();
+        ob.get_mut("a").unwrap().push_str("2");
+        let Json(mutation) = ob.flush().unwrap();
+        assert_eq!(mutation, Some(append!(a, json!("2"))));
+
+        // Replacing a key with a retained observer emits a replace, not stale granular state.
+        ob.get_mut("a").unwrap().push_str("3");
+        ob.insert("a".to_string(), "y".to_string());
+        let Json(mutation) = ob.flush().unwrap();
+        assert_eq!(mutation, Some(replace!(a, json!("y"))));
+        assert_eq!(map["a"], "y");
     }
 }

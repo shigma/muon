@@ -297,7 +297,7 @@ pub fn derive_snapshot(input: &syn::DeriveInput) -> TokenStream {
 
             #[automatically_derived]
             impl #impl_generics ::muon::general::SerializeSnapshot for #input_ident #ty_generics #serialize_where_clause {
-                fn flush(&self, snapshot: Self::Snapshot) -> ::muon::Mutations {
+                fn flush(&self, snapshot: Self::Snapshot) -> ::muon::Mutations<'_> {
                     #flush_body
                 }
             }
@@ -317,7 +317,7 @@ pub fn derive_noop_snapshot(input: &syn::DeriveInput) -> TokenStream {
 
         #[automatically_derived]
         impl #impl_generics ::muon::general::SerializeSnapshot for #input_ident #ty_generics #where_clause {
-            fn flush(&self, _snapshot: ()) -> ::muon::Mutations {
+            fn flush(&self, _snapshot: ()) -> ::muon::Mutations<'_> {
                 ::muon::Mutations::new()
             }
         }

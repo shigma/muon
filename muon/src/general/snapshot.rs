@@ -39,7 +39,7 @@ pub trait Snapshot {
 /// `flush` only needs to compare and return mutations.
 pub trait SerializeSnapshot: Snapshot + serde::Serialize {
     /// Compares the current value against the old snapshot and produces mutations.
-    fn flush(&self, snapshot: Self::Snapshot) -> Mutations;
+    fn flush(&self, snapshot: Self::Snapshot) -> Mutations<'_>;
 }
 
 struct SnapshotObserverState<T: Snapshot + ?Sized> {
@@ -59,7 +59,7 @@ impl<T: Snapshot + ?Sized> ObserverState<T> for SnapshotObserverState<T> {
 }
 
 impl<T: SerializeSnapshot + ?Sized> SerializeObserverState<T> for SnapshotObserverState<T> {
-    fn flush(&mut self, value: &T) -> Mutations {
+    fn flush<'a>(&'a mut self, value: &'a T) -> Mutations<'a> {
         SerializeSnapshot::flush(value, std::mem::replace(&mut self.snapshot, value.to_snapshot()))
     }
 }
@@ -162,7 +162,7 @@ macro_rules! impl_snapshot_observe {
             }
 
             impl SerializeSnapshot for $ty {
-                fn flush(&self, snapshot: Self) -> Mutations {
+                fn flush(&self, snapshot: Self) -> Mutations<'_> {
                     if self != &snapshot {
                         Mutations::replace(self)
                     } else {
@@ -227,7 +227,7 @@ macro_rules! generic_impl_snapshot_observe {
             }
 
             impl<$($($gen)*)?> SerializeSnapshot for $ty where Self: serde::Serialize {
-                fn flush(&self, snapshot: Self) -> Mutations {
+                fn flush(&self, snapshot: Self) -> Mutations<'_> {
                     if self != &snapshot {
                         Mutations::replace(self)
                     } else {

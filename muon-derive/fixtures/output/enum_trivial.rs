@@ -82,7 +82,7 @@ const _: () = {
         S: ::muon::helper::AsDeref<N, Target = Foo>,
         N: ::muon::helper::Unsigned,
     {
-        fn flush(this: &mut Self) -> ::muon::Mutations {
+        fn flush(this: &mut Self) -> ::muon::Mutations<'_> {
             let value = this.ptr.as_deref();
             let initial = this.initial;
             this.initial = FooObserverInitial::new(value);
@@ -93,7 +93,7 @@ const _: () = {
                 _ => ::muon::Mutations::replace(value),
             }
         }
-        fn flat_flush(this: &mut Self) -> ::muon::Mutations {
+        fn flat_flush(this: &mut Self) -> ::muon::Mutations<'_> {
             let value = this.ptr.as_deref();
             let initial = this.initial;
             this.initial = FooObserverInitial::new(value);
@@ -184,7 +184,7 @@ const _: () = {
     where
         Self: ::serde::Serialize,
     {
-        fn flush(&self, snapshot: Self::Snapshot) -> ::muon::Mutations {
+        fn flush(&self, snapshot: Self::Snapshot) -> ::muon::Mutations<'_> {
             match (self, snapshot) {
                 (Self::A, BarSnapshot::A) => ::muon::Mutations::new(),
                 (Self::B(), BarSnapshot::B()) => ::muon::Mutations::new(),

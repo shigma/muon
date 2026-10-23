@@ -161,14 +161,14 @@ const _: () = {
         >: ::muon::observe::SerializeObserver,
         ::muon::general::ShallowObserver<'ob, V, V>: ::muon::observe::SerializeObserver,
     {
-        fn flush(this: &mut Self) -> ::muon::Mutations {
+        fn flush(this: &mut Self) -> ::muon::Mutations<'_> {
             let mutations_a = ::muon::observe::SerializeObserver::flush(&mut this.a);
             let mutations_c = ::muon::observe::SerializeObserver::flush(&mut this.c);
             let mutations_d = ::muon::observe::SerializeObserver::flush(&mut this.d);
             if mutations_a.is_replace() && mutations_c.is_replace()
                 && mutations_d.is_replace()
             {
-                let value = ::muon::helper::QuasiObserver::untracked_ref(&*this);
+                let value = ::muon::helper::AsDeref::<_N>::as_deref(&*this.__ptr);
                 return ::muon::Mutations::replace(value);
             }
             let mut mutations = ::muon::Mutations::new()
@@ -176,7 +176,7 @@ const _: () = {
                     !mutations_a.is_empty() as usize + !mutations_c.is_empty() as usize
                         + !mutations_d.is_empty() as usize,
                 );
-            let __inner = ::muon::helper::QuasiObserver::untracked_ref(&*this);
+            let __inner = ::muon::helper::AsDeref::<_N>::as_deref(&*this.__ptr);
             mutations.insert("a", mutations_a);
             if !mutations_c.is_empty() && Option::is_none(&__inner.c) {
                 mutations.insert("c", ::muon::Mutations::delete());
@@ -186,7 +186,7 @@ const _: () = {
             mutations.insert("d", mutations_d);
             mutations
         }
-        fn flat_flush(this: &mut Self) -> ::muon::Mutations {
+        fn flat_flush(this: &mut Self) -> ::muon::Mutations<'_> {
             let mutations_a = ::muon::observe::SerializeObserver::flush(&mut this.a);
             let mutations_c = ::muon::observe::SerializeObserver::flush(&mut this.c);
             let mutations_d = ::muon::observe::SerializeObserver::flush(&mut this.d);
@@ -199,7 +199,7 @@ const _: () = {
                     mutations_a.is_replace() && mutations_c.is_replace()
                         && mutations_d.is_replace(),
                 );
-            let __inner = ::muon::helper::QuasiObserver::untracked_ref(&*this);
+            let __inner = ::muon::helper::AsDeref::<_N>::as_deref(&*this.__ptr);
             mutations.insert("a", mutations_a);
             if !mutations_c.is_empty() && Option::is_none(&__inner.c) {
                 mutations.insert("c", ::muon::Mutations::delete());

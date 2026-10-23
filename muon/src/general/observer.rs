@@ -72,7 +72,7 @@ pub trait SerializeHandler: GeneralHandler {
     /// Flushes and serializes all recorded mutations.
     ///
     /// See also [`SerializeObserver::flush`].
-    fn flush(&mut self, value: &Self::Target) -> Mutations;
+    fn flush<'a>(&'a mut self, value: &'a Self::Target) -> Mutations<'a>;
 }
 
 /// A handler that can only express replace-style mutations.
@@ -95,7 +95,7 @@ where
     H: ReplaceHandler,
     H::Target: Serialize + 'static,
 {
-    fn flush(&mut self, value: &Self::Target) -> Mutations {
+    fn flush<'a>(&'a mut self, value: &'a Self::Target) -> Mutations<'a> {
         let is_replace = ReplaceHandler::is_replace(self, value);
         *self = H::observe(value);
         if is_replace {
@@ -236,8 +236,9 @@ where
     S: AsDeref<D, Target = T>,
     H: SerializeHandler<Target = T>,
     D: Unsigned,
+    T: 'ob,
 {
-    fn flush(this: &mut Self) -> Mutations {
+    fn flush(this: &mut Self) -> Mutations<'_> {
         this.handler.flush((*this.ptr).as_deref())
     }
 }

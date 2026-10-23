@@ -98,30 +98,30 @@ where
     O: SerializeObserver<InnerDepth = Zero, Head = T::Owned>,
     T: ToOwned + ?Sized + 'a,
 {
-    fn flush(this: &mut Self) -> Mutations {
-        if let Some(owned) = this.owned.as_mut()
-            && !this.mutated
-        {
-            B::flush(&mut this.inner);
-            O::flush(owned)
-        } else {
+    fn flush(this: &mut Self) -> Mutations<'_> {
+        if this.mutated || this.owned.is_none() {
             this.owned = None;
             this.mutated = false;
-            B::flush(&mut this.inner)
+            return B::flush(&mut this.inner);
         }
+        B::flush(&mut this.inner);
+        let Some(owned) = this.owned.as_mut() else {
+            unreachable!()
+        };
+        O::flush(owned)
     }
 
-    fn flat_flush(this: &mut Self) -> Mutations {
-        if let Some(owned) = this.owned.as_mut()
-            && !this.mutated
-        {
-            B::flat_flush(&mut this.inner);
-            O::flat_flush(owned)
-        } else {
+    fn flat_flush(this: &mut Self) -> Mutations<'_> {
+        if this.mutated || this.owned.is_none() {
             this.owned = None;
             this.mutated = false;
-            B::flat_flush(&mut this.inner)
+            return B::flat_flush(&mut this.inner);
         }
+        B::flat_flush(&mut this.inner);
+        let Some(owned) = this.owned.as_mut() else {
+            unreachable!()
+        };
+        O::flat_flush(owned)
     }
 }
 
@@ -250,7 +250,7 @@ impl<'a, T> SerializeSnapshot for Cow<'a, T>
 where
     T: SerializeSnapshot + ToOwned + ?Sized,
 {
-    fn flush(&self, snapshot: Self::Snapshot) -> Mutations {
+    fn flush(&self, snapshot: Self::Snapshot) -> Mutations<'_> {
         (**self).flush(snapshot)
     }
 }

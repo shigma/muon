@@ -67,11 +67,11 @@ where
     O::Head: AsDeref<D>,
     D: Unsigned,
 {
-    fn flush(this: &mut Self) -> Mutations {
+    fn flush(this: &mut Self) -> Mutations<'_> {
         O::flush(&mut this.inner)
     }
 
-    fn flat_flush(this: &mut Self) -> Mutations {
+    fn flat_flush(this: &mut Self) -> Mutations<'_> {
         O::flat_flush(&mut this.inner)
     }
 }
@@ -216,7 +216,7 @@ macro_rules! impl_serialize_snapshot {
     ($(impl $([$($gen:tt)*])? SerializeSnapshot for $ty:ty;)*) => {
         $(
             impl <$($($gen)*)?> SerializeSnapshot for $ty {
-                fn flush(&self, snapshot: Self::Snapshot) -> Mutations {
+                fn flush(&self, snapshot: Self::Snapshot) -> Mutations<'_> {
                     (**self).flush(snapshot)
                 }
             }

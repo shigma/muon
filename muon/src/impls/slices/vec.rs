@@ -117,7 +117,7 @@ where
     O: SerializeObserver<InnerDepth = Zero>,
     O::Head: Serialize + Sized + 'static,
 {
-    fn flush(&mut self, ptr: &mut Pointer<S>) -> Mutations {
+    fn flush<'a>(&'a mut self, ptr: &'a mut Pointer<S>) -> Mutations<'a> {
         let slice = (**ptr).as_deref();
         let append_index = core::mem::replace(&mut self.append_index, slice.len());
         let truncate_len = core::mem::replace(&mut self.truncate_len, 0);
@@ -139,7 +139,7 @@ where
             }
         }
 
-        // Phase 2: Build Truncate/Append (safe to create SerializeRef now).
+        // Phase 2: Build Truncate/Append (safe to borrow the slice now).
         let mut mutations = Mutations::new();
         #[cfg(feature = "truncate")]
         if truncate_len > 0 {
@@ -151,11 +151,18 @@ where
         }
 
         // Phase 3: Flush initialized observers in reverse, appending child mutations.
+        // The returned mutations borrow the observers, so split `inner.data` into disjoint
+        // sub-slices rather than indexing it repeatedly. Ranges are visited from the highest down,
+        // so each split keeps the lower part for the next range.
         let mut is_replace = !has_gaps;
+        let mut rest: &mut [_] = &mut inner.data;
         for range in inner.initialized.overlapping(&(0..append_index)).rev() {
             let end = range.end.min(append_index);
-            for i in (range.start..end).rev() {
-                let mutations_i = SerializeObserver::flush(unsafe { inner.data[i].assume_init_mut() });
+            let (head, tail) = std::mem::take(&mut rest).split_at_mut(range.start);
+            rest = head;
+            for (offset, ob) in tail[..end - range.start].iter_mut().enumerate().rev() {
+                let i = range.start + offset;
+                let mutations_i = SerializeObserver::flush(unsafe { ob.assume_init_mut() });
                 is_replace &= mutations_i.is_replace();
                 mutations.insert(PathSegment::Negative(slice.len() - i), mutations_i);
             }
@@ -226,7 +233,7 @@ where
     O: SerializeObserver<InnerDepth = Zero, Head = T>,
     T: Serialize + 'static,
 {
-    fn flush(this: &mut Self) -> Mutations {
+    fn flush(this: &mut Self) -> Mutations<'_> {
         SliceObserver::flush(&mut this.inner)
     }
 }
@@ -614,7 +621,7 @@ impl<T: Snapshot> Snapshot for Vec<T> {
 }
 
 impl<T: SerializeSnapshot> SerializeSnapshot for Vec<T> {
-    fn flush(&self, snapshot: Self::Snapshot) -> Mutations {
+    fn flush(&self, snapshot: Self::Snapshot) -> Mutations<'_> {
         self.as_slice().flush(snapshot)
     }
 }

@@ -283,7 +283,7 @@ impl<A: Adapter> BatchTree<A> {
     /// - Returns [`None`] if no mutations have been accumulated.
     /// - Returns a single mutation if only one mutation exists.
     /// - Returns a [`Batch`](MutationKind::Batch) mutation if multiple mutations exist.
-    pub fn dump(&mut self) -> Mutations<A::Value> {
+    pub fn dump(&mut self) -> Mutations<'static, A::Value> {
         let mut mutations = Mutations::new();
         if let Some(children) = take(&mut self.children) {
             for (segment, mut batch) in children {

@@ -150,7 +150,7 @@ impl Snapshot for Url {
 }
 
 impl SerializeSnapshot for Url {
-    fn flush(&self, snapshot: Box<str>) -> Mutations {
+    fn flush(&self, snapshot: Box<str>) -> Mutations<'_> {
         self.as_str().flush(snapshot)
     }
 }

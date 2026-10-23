@@ -37,7 +37,7 @@ impl Snapshot for CString {
 }
 
 impl SerializeSnapshot for CString {
-    fn flush(&self, snapshot: Box<[u8]>) -> Mutations {
+    fn flush(&self, snapshot: Box<[u8]>) -> Mutations<'_> {
         self.as_c_str().flush(snapshot)
     }
 }
